@@ -23,7 +23,7 @@ function setupTrilhaEventListeners() {
     if (createTrilhaBtn) {
         createTrilhaBtn.addEventListener('click', showCreateTrilhaModal);
     }
-    
+
     // Continue trilha button
     const continueTrilhaBtn = document.getElementById('continueTrilhaBtn');
     if (continueTrilhaBtn) {
@@ -32,36 +32,56 @@ function setupTrilhaEventListeners() {
             showUserTrilhas();
         });
     }
-    
+
     // Create trilha form
     const createTrilhaForm = document.getElementById('createTrilhaForm');
+    
     if (createTrilhaForm) {
         createTrilhaForm.addEventListener('submit', handleCreateTrilha);
+
+        // Form validation to enable/disable submit button
+        const topicInput = document.getElementById('trilhaTopic');
+        const difficultySelect = document.getElementById('trilhaDifficulty');
+        const submitBtn = createTrilhaForm.querySelector('button[type="submit"]');
+
+        function validateCreateForm() {
+            const isValid = topicInput && topicInput.value.trim() && difficultySelect && difficultySelect.value;
+            if (submitBtn) {
+                submitBtn.disabled = !isValid;
+                submitBtn.style.opacity = isValid ? '1' : '0.6';
+            }
+        }
+        if (topicInput) topicInput.addEventListener('input', validateCreateForm);
+        if (difficultySelect) difficultySelect.addEventListener('change', validateCreateForm);
+
+
+        setTimeout(validateCreateForm, 100);
     }
-    
+
+
     // Preview trilha button
     const previewTrilhaBtn = document.getElementById('previewTrilhaBtn');
     if (previewTrilhaBtn) {
         previewTrilhaBtn.addEventListener('click', showTrilhaPreview);
     }
-    
+
     // Quiz navigation buttons
     const quizNextBtn = document.getElementById('quizNextBtn');
     if (quizNextBtn) {
         quizNextBtn.addEventListener('click', handleQuizNext);
     }
-    
+
     const quizPrevBtn = document.getElementById('quizPrevBtn');
     if (quizPrevBtn) {
         quizPrevBtn.addEventListener('click', handleQuizPrevious);
     }
-    
+
     // Quiz finish button
     const finishQuizBtn = document.getElementById('finishQuizBtn');
     if (finishQuizBtn) {
         finishQuizBtn.addEventListener('click', finishQuiz);
     }
-    
+
     // Review answers button
     const reviewAnswersBtn = document.getElementById('reviewAnswersBtn');
     if (reviewAnswersBtn) {
@@ -74,26 +94,26 @@ async function checkUserTrilhaStatus() {
     console.log('checkUserTrilhaStatus called');
     const currentUser = window.elearning?.getCurrentUser();
     console.log('Current user:', currentUser);
-    
+
     if (!currentUser) {
         console.log('No current user found');
         return;
     }
-    
+
     try {
         console.log('Fetching trilha status for user:', currentUser.id);
         const response = await fetch(`/api/v1/trilhas-personalizadas/user/${currentUser.id}/check-active`);
         const result = await response.json();
-        
+
         console.log('Trilha status response:', result);
-        
+
         if (result.success) {
             const createBtn = document.getElementById('createTrilhaBtn');
             const continueBtn = document.getElementById('continueTrilhaBtn');
-            
+
             console.log('Create button found:', !!createBtn);
             console.log('Continue button found:', !!continueBtn);
-            
+
             if (result.data.has_active_trilhas) {
                 // User has active trilhas - show both options
                 console.log('User has active trilhas - showing both buttons');
@@ -110,7 +130,7 @@ async function checkUserTrilhaStatus() {
         }
     } catch (error) {
         console.error('Error checking user trilha status:', error);
-        
+
         // Fallback - show create button if user is logged in
         const createBtn = document.getElementById('createTrilhaBtn');
         if (createBtn && currentUser) {
@@ -125,15 +145,15 @@ function showCreateTrilhaModal() {
     const modal = document.getElementById('createTrilhaModal');
     if (modal) {
         modal.style.display = 'block';
-        
+
         // Reset form
         const form = document.getElementById('createTrilhaForm');
         if (form) form.reset();
-        
+
         // Hide preview
         const preview = document.getElementById('trilhaPreview');
         if (preview) preview.style.display = 'none';
-        
+
         // Hide progress
         const progress = document.getElementById('trilhaCreationProgress');
         if (progress) progress.style.display = 'none';
@@ -144,21 +164,21 @@ function showCreateTrilhaModal() {
 function showTrilhaPreview() {
     const topic = document.getElementById('trilhaTopic').value;
     const difficulty = document.getElementById('trilhaDifficulty').value;
-    
+
     if (!topic || !difficulty) {
         window.elearning?.showNotification('Preencha todos os campos primeiro', 'warning');
         return;
     }
-    
+
     // Generate preview data
     const preview = generateTrilhaPreview(topic, difficulty);
-    
+
     // Update preview elements
     document.getElementById('previewTitle').textContent = preview.title;
     document.getElementById('previewDescription').textContent = preview.description;
     document.getElementById('previewModules').textContent = preview.modules;
     document.getElementById('previewDuration').textContent = preview.duration;
-    
+
     // Show preview
     const previewDiv = document.getElementById('trilhaPreview');
     if (previewDiv) previewDiv.style.display = 'block';
@@ -171,18 +191,18 @@ function generateTrilhaPreview(topic, difficulty) {
         intermediario: 'Intermediário',
         avancado: 'Avançado'
     };
-    
+
     const modulesCounts = {
         iniciante: 3,
         intermediario: 4,
         avancado: 5
     };
-    
+
     const title = `${topic} - ${difficultyLabels[difficulty]}`;
     const description = `Aprenda ${topic} de forma estruturada com conteúdo ${difficulty} e exercícios práticos.`;
     const modules = `${modulesCounts[difficulty]} módulos`;
     const duration = `${modulesCounts[difficulty] * 30} minutos estimados`;
-    
+
     return { title, description, modules, duration };
 }
 
@@ -190,10 +210,10 @@ function generateTrilhaPreview(topic, difficulty) {
 async function handleCreateTrilha(event) {
     event.preventDefault();
     console.log('handleCreateTrilha called');
-    
+
     const currentUser = window.elearning?.getCurrentUser();
     console.log('Current user:', currentUser);
-    
+
     if (!currentUser) {
         if (window.elearning?.showNotification) {
             window.elearning.showNotification('Você precisa estar logado para criar trilhas', 'error');
@@ -202,12 +222,12 @@ async function handleCreateTrilha(event) {
         }
         return;
     }
-    
+
     const topic = document.getElementById('trilhaTopic').value;
     const difficulty = document.getElementById('trilhaDifficulty').value;
-    
+
     console.log('Form data:', { topic, difficulty });
-    
+
     if (!topic || !difficulty) {
         if (window.elearning?.showNotification) {
             window.elearning.showNotification('Preencha todos os campos', 'warning');
@@ -216,19 +236,19 @@ async function handleCreateTrilha(event) {
         }
         return;
     }
-    
+
     // Show creation progress
     const form = document.getElementById('createTrilhaForm');
     const progress = document.getElementById('trilhaCreationProgress');
-    
+
     console.log('Showing progress...');
     if (form) form.style.display = 'none';
     if (progress) progress.style.display = 'block';
-    
+
     try {
         // Animate progress steps
         animateCreationProgress();
-        
+
         console.log('Making API request...');
         const response = await fetch('/api/v1/trilhas-personalizadas/create', {
             method: 'POST',
@@ -241,11 +261,11 @@ async function handleCreateTrilha(event) {
                 difficulty: difficulty
             })
         });
-        
+
         console.log('API response status:', response.status);
         const result = await response.json();
         console.log('API result:', result);
-        
+
         if (result.success) {
             // Success - show completion
             console.log('Trilha created successfully');
@@ -253,7 +273,7 @@ async function handleCreateTrilha(event) {
         } else {
             throw new Error(result.detail || 'Failed to create trilha');
         }
-        
+
     } catch (error) {
         console.error('Error creating trilha:', error);
         if (window.elearning?.showNotification) {
@@ -261,7 +281,7 @@ async function handleCreateTrilha(event) {
         } else {
             alert('Erro ao criar trilha: ' + error.message);
         }
-        
+
         // Reset form display
         if (form) form.style.display = 'block';
         if (progress) progress.style.display = 'none';
@@ -272,36 +292,36 @@ async function handleCreateTrilha(event) {
 function animateCreationProgress() {
     const steps = document.querySelectorAll('.progress-steps .step');
     let currentStep = 0;
-    
+
     const animateStep = () => {
         if (currentStep < steps.length) {
             // Activate current step
             steps[currentStep].classList.add('active');
-            
+
             // Deactivate previous step
             if (currentStep > 0) {
                 steps[currentStep - 1].classList.remove('active');
                 steps[currentStep - 1].classList.add('completed');
             }
-            
+
             currentStep++;
             setTimeout(animateStep, 2000); // 2 seconds per step
         }
     };
-    
+
     setTimeout(animateStep, 1000); // Start after 1 second
 }
 
 // Show creation success
 function showCreationSuccess(trilhaData) {
     console.log('showCreationSuccess called with:', trilhaData);
-    
+
     const modal = document.getElementById('createTrilhaModal');
     if (modal) {
         console.log('Closing modal');
         modal.style.display = 'none';
     }
-    
+
     // Show success notification
     if (window.elearning?.showNotification) {
         window.elearning.showNotification('Trilha criada com sucesso!', 'success');
@@ -310,21 +330,21 @@ function showCreationSuccess(trilhaData) {
     } else {
         alert('Trilha criada com sucesso!');
     }
-    
+
     // Refresh trilhas list
     console.log('Refreshing trilhas list');
     if (typeof loadTrilhas === 'function') {
         loadTrilhas();
     }
-    
+
     // Show user trilhas (the personalized ones)
     console.log('Showing user trilhas');
     showUserTrilhas();
-    
+
     // Update user status
     console.log('Updating user status');
     checkUserTrilhaStatus();
-    
+
     // Show success modal with option to start
     console.log('Showing success modal');
     showTrilhaSuccessModal(trilhaData);
@@ -370,11 +390,10 @@ function showTrilhaSuccessModal(trilhaData) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
-// Show user trilhas
 async function showUserTrilhas() {
     console.log('showUserTrilhas called');
     const currentUser = window.elearning?.getCurrentUser();
@@ -383,18 +402,29 @@ async function showUserTrilhas() {
         return;
     }
     
+    const storedUserId = localStorage.getItem('elearning_user_id');
+    if (storedUserId && parseInt(storedUserId) !== currentUser.id) {
+        console.error('User ID mismatch! Stored:', storedUserId, 'Current:', currentUser.id);
+        console.error('Forcing logout to prevent data contamination');
+        window.elearning.logout();
+        window.elearning.showNotification('Sessão inválida. Por favor, faça login novamente.', 'error');
+        showModal('loginModal');
+        return;
+    }
+    
     try {
-        console.log('Fetching user trilhas for user:', currentUser.id);
+        console.log('Fetching user trilhas for user:', currentUser.id, currentUser.email);
         const response = await fetch(`/api/v1/trilhas-personalizadas/user/${currentUser.id}/created`);
         const result = await response.json();
-        
+
         console.log('User trilhas response:', result);
-        
+
         if (result.success && result.data.trilhas) {
-            console.log('Displaying user trilhas:', result.data.trilhas);
+            console.log(`Found ${result.data.trilhas.length} trilhas for user ${currentUser.id}`);
             displayUserTrilhas(result.data.trilhas);
         } else {
             console.log('No trilhas found or error in response');
+            displayUserTrilhas([]);
         }
     } catch (error) {
         console.error('Error loading user trilhas:', error);
@@ -410,7 +440,7 @@ async function showUserTrilhas() {
 function displayUserTrilhas(trilhas) {
     const trilhasGrid = document.getElementById('trilhasGrid');
     if (!trilhasGrid) return;
-    
+
     // Check if there are no trilhas
     if (!trilhas || trilhas.length === 0) {
         trilhasGrid.innerHTML = `
@@ -422,14 +452,14 @@ function displayUserTrilhas(trilhas) {
         `;
         return;
     }
-    
+
     // Map Portuguese difficulty to English for filter compatibility
     const difficultyMap = {
         'iniciante': 'beginner',
         'intermediario': 'intermediate',
         'avancado': 'advanced'
     };
-    
+
     trilhasGrid.innerHTML = trilhas.map(trilha => {
         const englishDifficulty = difficultyMap[trilha.dificuldade] || trilha.dificuldade;
         return `
@@ -472,7 +502,7 @@ function displayUserTrilhas(trilhas) {
             </div>
         </div>
     `}).join('');
-    
+
     // Apply the current active filter after displaying trilhas
     applyActiveFilter();
 }
@@ -498,17 +528,17 @@ async function startTrilha(trilhaId) {
         }
         return;
     }
-    
+
     console.log('Starting trilha:', trilhaId);
-    
+
     try {
         // Buscar detalhes da trilha
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
         const result = await response.json();
-        
+
         if (result.success && result.data) {
             const trilha = result.data;
-            
+
             // Mostrar modal de início da trilha
             showTrilhaStartModal(trilha);
         } else {
@@ -528,7 +558,7 @@ async function startTrilha(trilhaId) {
 async function startQuizSession(moduleId) {
     const currentUser = window.elearning?.getCurrentUser();
     if (!currentUser) return;
-    
+
     try {
         const response = await fetch('/api/v1/trilhas-personalizadas/quiz/start', {
             method: 'POST',
@@ -540,9 +570,9 @@ async function startQuizSession(moduleId) {
                 module_id: moduleId
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             trilhaPersonalizadaState.currentQuizSession = result.data;
             console.log('Quiz session started:', result.data);
@@ -636,11 +666,11 @@ function displayQuestion(question, sessionInfo) {
 function handleAnswerSelection(event) {
     const selectedAnswer = event.target.value;
     const questionId = trilhaPersonalizadaState.currentQuestion?.id;
-    
+
     if (questionId) {
         trilhaPersonalizadaState.selectedAnswers[questionId] = selectedAnswer;
     }
-    
+
     // Enable next button
     const nextBtn = document.getElementById('quizNextBtn');
     if (nextBtn) {
@@ -652,11 +682,11 @@ function handleAnswerSelection(event) {
 function updateQuizNavigation(currentQuestion, totalQuestions) {
     const prevBtn = document.getElementById('quizPrevBtn');
     const nextBtn = document.getElementById('quizNextBtn');
-    
+
     if (prevBtn) {
         prevBtn.disabled = currentQuestion <= 1;
     }
-    
+
     if (nextBtn) {
         nextBtn.disabled = true; // Will be enabled when answer is selected
         nextBtn.textContent = currentQuestion >= totalQuestions ? 'Finalizar' : 'Próxima';
@@ -668,15 +698,15 @@ async function handleQuizNext() {
     const selectedAnswer = document.querySelector('input[name="quiz_answer"]:checked')?.value;
     const questionId = trilhaPersonalizadaState.currentQuestion?.id;
     const sessionId = trilhaPersonalizadaState.currentQuizSession?.id;
-    
+
     if (!selectedAnswer || !questionId || !sessionId) {
         window.elearning?.showNotification('Selecione uma resposta', 'warning');
         return;
     }
-    
+
     const currentUser = window.elearning?.getCurrentUser();
     if (!currentUser) return;
-    
+
     try {
         const response = await fetch(`/api/v1/trilhas-personalizadas/quiz/session/${sessionId}/answer`, {
             method: 'POST',
@@ -689,13 +719,13 @@ async function handleQuizNext() {
                 selected_answer: selectedAnswer
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             // Show answer feedback briefly
             showAnswerFeedback(result.data.answer_result);
-            
+
             // Check if quiz is completed
             if (result.data.session_info.is_completed) {
                 setTimeout(() => {
@@ -720,7 +750,7 @@ async function handleQuizNext() {
 function showAnswerFeedback(answerResult) {
     const isCorrect = answerResult.is_correct;
     const explanation = answerResult.explanation;
-    
+
     // Create feedback element
     const feedback = document.createElement('div');
     feedback.className = `answer-feedback ${isCorrect ? 'correct' : 'incorrect'}`;
@@ -734,12 +764,12 @@ function showAnswerFeedback(answerResult) {
             ${explanation ? `<p><strong>Explicação:</strong> ${explanation}</p>` : ''}
         </div>
     `;
-    
+
     // Insert feedback after question
     const questionDiv = document.getElementById('quizQuestion');
     if (questionDiv) {
         questionDiv.appendChild(feedback);
-        
+
         // Remove feedback after delay
         setTimeout(() => {
             feedback.remove();
@@ -751,20 +781,20 @@ function showAnswerFeedback(answerResult) {
 function showQuizResults(results) {
     const quizContainer = document.querySelector('.quiz-container');
     const quizResults = document.getElementById('quizResults');
-    
+
     if (quizContainer) quizContainer.style.display = 'none';
     if (quizResults) quizResults.style.display = 'block';
-    
+
     // Stop timer
     stopQuizTimer();
-    
+
     // Update results display
     document.getElementById('finalScore').textContent = `${results.score_percentage}%`;
     document.getElementById('correctAnswers').textContent = results.correct_answers;
     document.getElementById('wrongAnswers').textContent = results.wrong_answers;
     document.getElementById('totalTime').textContent = `${results.time_taken_minutes}:${results.time_taken_seconds.toString().padStart(2, '0')}`;
     document.getElementById('performanceLevel').textContent = results.performance_level;
-    
+
     // Update score circle color
     const scoreCircle = document.querySelector('.score-circle');
     if (scoreCircle) {
@@ -782,25 +812,25 @@ function showQuizResults(results) {
 function startQuizTimer() {
     const session = trilhaPersonalizadaState.currentQuizSession;
     if (!session) return;
-    
+
     trilhaPersonalizadaState.timeRemaining = session.time_limit || 1800; // 30 minutes default
-    
+
     trilhaPersonalizadaState.quizTimer = setInterval(() => {
         trilhaPersonalizadaState.timeRemaining--;
-        
+
         const minutes = Math.floor(trilhaPersonalizadaState.timeRemaining / 60);
         const seconds = trilhaPersonalizadaState.timeRemaining % 60;
-        
+
         const timerElement = document.getElementById('quizTimer');
         if (timerElement) {
             timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
-        
+
         // Warning when 5 minutes left
         if (trilhaPersonalizadaState.timeRemaining === 300) {
             window.elearning?.showNotification('Restam apenas 5 minutos!', 'warning');
         }
-        
+
         // Time up
         if (trilhaPersonalizadaState.timeRemaining <= 0) {
             stopQuizTimer();
@@ -828,23 +858,23 @@ function handleQuizPrevious() {
 function finishQuiz() {
     const modal = document.getElementById('quizModal');
     if (modal) modal.style.display = 'none';
-    
+
     // Reset state
     trilhaPersonalizadaState.currentQuizSession = null;
     trilhaPersonalizadaState.currentQuestion = null;
     trilhaPersonalizadaState.selectedAnswers = {};
-    
+
     // Stop timer
     stopQuizTimer();
-    
+
     // Show dashboard
     window.elearning?.showSection('dashboard');
-    
+
     // Refresh dashboard data
     if (window.dashboard?.loadData) {
         window.dashboard.loadData();
     }
-    
+
     window.elearning?.showNotification('Quiz finalizado! Confira seu progresso no dashboard.', 'success');
 }
 
@@ -856,12 +886,12 @@ function reviewQuizAnswers() {
 // View trilha details
 async function viewTrilhaDetails(trilhaId) {
     console.log('Viewing trilha details:', trilhaId);
-    
+
     try {
         // Buscar detalhes da trilha
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
         const result = await response.json();
-        
+
         if (result.success && result.data) {
             const trilha = result.data;
             showTrilhaDetailsModal(trilha);
@@ -965,7 +995,7 @@ function showTrilhaDetailsModal(trilha) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
@@ -1025,7 +1055,7 @@ function showTrilhaStartModal(trilha) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
@@ -1033,11 +1063,11 @@ function showTrilhaStartModal(trilha) {
 async function startFirstModuleWithLoadingInModal(button, trilhaId) {
     // Salvar texto original do botão
     const originalHTML = button.innerHTML;
-    
+
     // Mostrar loading no botão (spinner como na imagem)
     button.innerHTML = '<div class="btn-spinner"></div> Carregando...';
     button.disabled = true;
-    
+
     // Também desabilitar o botão cancelar para evitar fechar durante loading
     const cancelButton = button.parentElement.querySelector('.btn-outline');
     const originalCancelHTML = cancelButton ? cancelButton.innerHTML : '';
@@ -1045,26 +1075,26 @@ async function startFirstModuleWithLoadingInModal(button, trilhaId) {
         cancelButton.disabled = true;
         cancelButton.style.opacity = '0.5';
     }
-    
+
     try {
         console.log('Starting first module of trilha:', trilhaId);
-        
+
         // Buscar detalhes da trilha para pegar o primeiro módulo
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
         const result = await response.json();
-        
+
         if (result.success && result.data && result.data.modules && result.data.modules.length > 0) {
             const firstModule = result.data.modules[0];
-            
+
             // Atualizar botão para mostrar progresso
             button.innerHTML = '<div class="btn-spinner"></div> Preparando Quiz...';
-            
+
             // Mostrar loading overlay no modal
             showLoadingInModal();
-            
+
             // Aguardar um pouco para mostrar o feedback visual
             await new Promise(resolve => setTimeout(resolve, 1000));
-            
+
             // Iniciar quiz do primeiro módulo SEM fechar o modal ainda
             await startModuleQuizWithModalControl(trilhaId, firstModule);
         } else {
@@ -1072,16 +1102,16 @@ async function startFirstModuleWithLoadingInModal(button, trilhaId) {
         }
     } catch (error) {
         console.error('Error starting first module:', error);
-        
+
         // Restaurar botões
         button.innerHTML = originalHTML;
         button.disabled = false;
-        
+
         if (cancelButton) {
             cancelButton.disabled = false;
             cancelButton.style.opacity = '1';
         }
-        
+
         // Mostrar erro estilizado
         showStartModuleError(error.message);
     }
@@ -1091,24 +1121,24 @@ async function startFirstModuleWithLoadingInModal(button, trilhaId) {
 async function startFirstModuleWithLoading(button, trilhaId) {
     // Salvar texto original do botão
     const originalHTML = button.innerHTML;
-    
+
     // Mostrar loading no botão
     button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
     button.disabled = true;
-    
+
     try {
         // Fechar modal
         document.querySelector('.modal-overlay')?.remove();
-        
+
         console.log('Starting first module of trilha:', trilhaId);
-        
+
         // Buscar detalhes da trilha para pegar o primeiro módulo
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
         const result = await response.json();
-        
+
         if (result.success && result.data && result.data.modules && result.data.modules.length > 0) {
             const firstModule = result.data.modules[0];
-            
+
             // Iniciar quiz do primeiro módulo diretamente
             await startModuleQuiz(trilhaId, firstModule);
         } else {
@@ -1116,11 +1146,11 @@ async function startFirstModuleWithLoading(button, trilhaId) {
         }
     } catch (error) {
         console.error('Error starting first module:', error);
-        
+
         // Restaurar botão
         button.innerHTML = originalHTML;
         button.disabled = false;
-        
+
         // Mostrar erro estilizado
         showStartModuleError(error.message);
     }
@@ -1130,17 +1160,17 @@ async function startFirstModuleWithLoading(button, trilhaId) {
 async function startFirstModule(trilhaId) {
     // Fechar modal
     document.querySelector('.modal-overlay')?.remove();
-    
+
     console.log('Starting first module of trilha:', trilhaId);
-    
+
     try {
         // Buscar detalhes da trilha para pegar o primeiro módulo
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
         const result = await response.json();
-        
+
         if (result.success && result.data && result.data.modules && result.data.modules.length > 0) {
             const firstModule = result.data.modules[0];
-            
+
             // Iniciar quiz do primeiro módulo
             await startModuleQuiz(trilhaId, firstModule);
         } else {
@@ -1155,7 +1185,7 @@ async function startFirstModule(trilhaId) {
 // Start module quiz with modal control
 async function startModuleQuizWithModalControl(trilhaId, module) {
     console.log('Starting quiz for module with modal control:', module);
-    
+
     try {
         // Gerar questões primeiro
         const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
@@ -1169,9 +1199,9 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
                 count: module.questions_count || 10
             })
         });
-        
+
         const questionsResult = await questionsResponse.json();
-        
+
         let questions;
         if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
             // Usar questões geradas pela LLM
@@ -1180,23 +1210,23 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
             // Fallback: usar questões mock
             questions = generateMockQuestions(module.titulo, module.questions_count || 10);
         }
-        
+
         // AGORA sim fechar o modal
         document.querySelector('.modal-overlay')?.remove();
-        
+
         // Aguardar um pouco para garantir que o modal foi removido
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         // Mostrar o quiz
         showQuizModal(trilhaId, module, questions);
-        
+
     } catch (error) {
         console.error('Error generating questions:', error);
-        
+
         // Em caso de erro, fechar modal e usar questões mock
         document.querySelector('.modal-overlay')?.remove();
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
         showQuizModal(trilhaId, module, mockQuestions);
     }
@@ -1205,7 +1235,7 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
 // Start module quiz
 async function startModuleQuiz(trilhaId, module) {
     console.log('Starting quiz for module:', module);
-    
+
     try {
         // Gerar questões para o módulo usando LLM
         const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
@@ -1221,9 +1251,9 @@ async function startModuleQuiz(trilhaId, module) {
                 count: module.questions_count || 10
             })
         });
-        
+
         const questionsResult = await questionsResponse.json();
-        
+
         if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
             // Iniciar quiz com as questões geradas
             showQuizModal(trilhaId, module, questionsResult.data.questions);
@@ -1243,7 +1273,7 @@ async function startModuleQuiz(trilhaId, module) {
 // Generate mock questions as fallback
 function generateMockQuestions(topic, count) {
     const questions = [];
-    
+
     for (let i = 1; i <= count; i++) {
         questions.push({
             id: i,
@@ -1259,7 +1289,7 @@ function generateMockQuestions(topic, count) {
             explanation: `Esta é a explicação para a questão ${i}. A alternativa 'a' está correta porque representa o conceito fundamental do tópico.`
         });
     }
-    
+
     return questions;
 }
 
@@ -1320,9 +1350,9 @@ function showQuizModal(trilhaId, module, questions) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     // Inicializar quiz
     initializeQuiz(trilhaId, module, questions, modal);
 }
@@ -1333,7 +1363,7 @@ function initializeQuiz(trilhaId, module, questions, modal) {
     let answers = {};
     let startTime = Date.now();
     let timerInterval;
-    
+
     // Elementos do DOM
     const currentQuestionSpan = document.querySelector('.current-question');
     const currentQNumSpan = document.querySelector('.current-q-num');
@@ -1343,7 +1373,7 @@ function initializeQuiz(trilhaId, module, questions, modal) {
     const nextBtn = document.getElementById('quiz-next-btn');
     const finishBtn = document.getElementById('quiz-finish-btn');
     const timerElement = document.getElementById('quiz-timer');
-    
+
     // Iniciar timer
     timerInterval = setInterval(() => {
         const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -1351,15 +1381,15 @@ function initializeQuiz(trilhaId, module, questions, modal) {
         const seconds = elapsed % 60;
         timerElement.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }, 1000);
-    
+
     // Função para atualizar a questão
     function updateQuestion() {
         const question = questions[currentQuestion];
-        
+
         currentQuestionSpan.textContent = currentQuestion + 1;
         currentQNumSpan.textContent = currentQuestion + 1;
         questionText.textContent = question.question;
-        
+
         alternativesContainer.innerHTML = question.alternatives.map(alt => `
             <label class="alternative-option">
                 <input type="radio" name="quiz-answer" value="${alt.letter}" ${answers[currentQuestion] === alt.letter ? 'checked' : ''}>
@@ -1367,10 +1397,10 @@ function initializeQuiz(trilhaId, module, questions, modal) {
                 <span class="alternative-text">${alt.text}</span>
             </label>
         `).join('');
-        
+
         // Atualizar botões
         prevBtn.disabled = currentQuestion === 0;
-        
+
         if (currentQuestion === questions.length - 1) {
             nextBtn.style.display = 'none';
             finishBtn.style.display = 'inline-flex';
@@ -1378,7 +1408,7 @@ function initializeQuiz(trilhaId, module, questions, modal) {
             nextBtn.style.display = 'inline-flex';
             finishBtn.style.display = 'none';
         }
-        
+
         // Event listeners para as alternativas
         document.querySelectorAll('input[name="quiz-answer"]').forEach(input => {
             input.addEventListener('change', (e) => {
@@ -1386,7 +1416,7 @@ function initializeQuiz(trilhaId, module, questions, modal) {
             });
         });
     }
-    
+
     // Event listeners dos botões
     prevBtn.addEventListener('click', () => {
         if (currentQuestion > 0) {
@@ -1394,18 +1424,18 @@ function initializeQuiz(trilhaId, module, questions, modal) {
             updateQuestion();
         }
     });
-    
+
     nextBtn.addEventListener('click', () => {
         if (currentQuestion < questions.length - 1) {
             currentQuestion++;
             updateQuestion();
         }
     });
-    
+
     finishBtn.addEventListener('click', () => {
         finishQuiz(trilhaId, module, questions, answers, startTime, timerInterval);
     });
-    
+
     // Fechar modal
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
@@ -1415,7 +1445,7 @@ function initializeQuiz(trilhaId, module, questions, modal) {
             }
         }
     });
-    
+
     // Inicializar primeira questão
     updateQuestion();
 }
@@ -1423,17 +1453,17 @@ function initializeQuiz(trilhaId, module, questions, modal) {
 // Finish quiz and show results
 function finishQuiz(trilhaId, module, questions, answers, startTime, timerInterval) {
     clearInterval(timerInterval);
-    
+
     const endTime = Date.now();
     const totalTime = Math.floor((endTime - startTime) / 1000);
-    
+
     // Calcular resultados
     let correctAnswers = 0;
     const results = questions.map((question, index) => {
         const userAnswer = answers[index];
         const isCorrect = userAnswer === question.correct_answer;
         if (isCorrect) correctAnswers++;
-        
+
         return {
             question: question.question,
             userAnswer,
@@ -1442,9 +1472,9 @@ function finishQuiz(trilhaId, module, questions, answers, startTime, timerInterv
             explanation: question.explanation
         };
     });
-    
+
     const percentage = Math.round((correctAnswers / questions.length) * 100);
-    
+
     // Mostrar resultados
     showQuizResults(trilhaId, module, results, correctAnswers, questions.length, totalTime, percentage);
 }
@@ -1453,11 +1483,11 @@ function finishQuiz(trilhaId, module, questions, answers, startTime, timerInterv
 function showQuizResults(trilhaId, module, results, correctAnswers, totalQuestions, totalTime, percentage) {
     // Remover modal do quiz
     document.querySelector('.quiz-modal-overlay')?.remove();
-    
+
     const minutes = Math.floor(totalTime / 60);
     const seconds = totalTime % 60;
     const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-    
+
     const modal = document.createElement('div');
     modal.className = 'modal-overlay quiz-results-overlay';
     modal.innerHTML = `
@@ -1503,12 +1533,12 @@ function showQuizResults(trilhaId, module, results, correctAnswers, totalQuestio
                     </div>
                     
                     <div class="performance-message">
-                        ${percentage >= 90 ? 
-                            '<p class="excellent">🎉 Excelente! Você domina muito bem este conteúdo!</p>' :
-                            percentage >= 70 ?
-                            '<p class="good">👍 Bom trabalho! Você está no caminho certo!</p>' :
-                            '<p class="needs-improvement">📚 Continue estudando! A prática leva à perfeição!</p>'
-                        }
+                        ${percentage >= 90 ?
+            '<p class="excellent">🎉 Excelente! Você domina muito bem este conteúdo!</p>' :
+            percentage >= 70 ?
+                '<p class="good">👍 Bom trabalho! Você está no caminho certo!</p>' :
+                '<p class="needs-improvement">📚 Continue estudando! A prática leva à perfeição!</p>'
+        }
                     </div>
                 </div>
                 
@@ -1566,7 +1596,7 @@ function showQuizResults(trilhaId, module, results, correctAnswers, totalQuestio
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
@@ -1585,7 +1615,7 @@ function retakeQuiz(trilhaId, module) {
 // Show delete confirmation modal
 function showDeleteConfirmation(trilhaId, trilhaTitle) {
     console.log('Showing delete confirmation for trilha:', trilhaId, trilhaTitle);
-    
+
     const modal = document.createElement('div');
     modal.className = 'modal-overlay delete-confirmation-overlay';
     modal.innerHTML = `
@@ -1626,14 +1656,14 @@ function showDeleteConfirmation(trilhaId, trilhaTitle) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
 // Confirm trilha deletion
 async function confirmDeleteTrilha(trilhaId) {
     console.log('Confirming deletion of trilha:', trilhaId);
-    
+
     try {
         // Show loading state
         const deleteBtn = document.querySelector('.btn-danger');
@@ -1641,7 +1671,7 @@ async function confirmDeleteTrilha(trilhaId) {
             deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Excluindo...';
             deleteBtn.disabled = true;
         }
-        
+
         // Call delete API
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/delete`, {
             method: 'DELETE',
@@ -1649,51 +1679,51 @@ async function confirmDeleteTrilha(trilhaId) {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             // Close modal
             document.querySelector('.delete-confirmation-overlay')?.remove();
-            
+
             // Close any error modals that might be open
             document.querySelectorAll('.modal-overlay').forEach(modal => {
                 if (modal.innerHTML.includes('Erro ao excluir trilha')) {
                     modal.remove();
                 }
             });
-            
+
             // Show success modal
             showDeleteSuccessModal();
-            
+
             // Refresh trilhas list
             console.log('Refreshing trilhas list after deletion');
             showUserTrilhas();
-            
+
             // Update user status
             checkUserTrilhaStatus();
-            
+
         } else {
             throw new Error(result.message || 'Erro ao excluir trilha');
         }
-        
+
     } catch (error) {
         console.error('Error deleting trilha:', error);
-        
+
         // Reset button state
         const deleteBtn = document.querySelector('.btn-danger');
         if (deleteBtn) {
             deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Sim, Excluir';
             deleteBtn.disabled = false;
         }
-        
+
         let errorMessage = error.message;
-        
+
         // Mensagens de erro mais amigáveis
         if (error.message.includes('404')) {
             errorMessage = 'Trilha não encontrada.';
         }
-        
+
         if (window.elearning?.showNotification) {
             window.elearning.showNotification('Erro ao excluir trilha: ' + errorMessage, 'error');
         } else {
@@ -1737,9 +1767,9 @@ function showDeleteSuccessModal() {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     // Auto close after 3 seconds
     setTimeout(() => {
         if (modal && modal.parentNode) {
@@ -1752,7 +1782,7 @@ function showDeleteSuccessModal() {
 function showLoadingInModal() {
     const modal = document.querySelector('.trilha-modal-overlay');
     if (!modal) return;
-    
+
     // Criar overlay de loading
     const loadingOverlay = document.createElement('div');
     loadingOverlay.className = 'modal-loading-overlay';
@@ -1767,9 +1797,9 @@ function showLoadingInModal() {
             </div>
         </div>
     `;
-    
+
     modal.appendChild(loadingOverlay);
-    
+
     // Animar os steps de forma mais realista
     setTimeout(() => {
         const steps = loadingOverlay.querySelectorAll('.loading-step');
@@ -1778,7 +1808,7 @@ function showLoadingInModal() {
             steps[1].classList.add('active');
         }
     }, 800);
-    
+
     setTimeout(() => {
         const steps = loadingOverlay.querySelectorAll('.loading-step');
         if (steps.length >= 3) {
@@ -1831,7 +1861,7 @@ function showQuizCancelConfirmation() {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
@@ -1839,10 +1869,10 @@ function showQuizCancelConfirmation() {
 function confirmQuizCancel() {
     // Fechar modal de confirmação
     document.querySelector('.quiz-cancel-overlay')?.remove();
-    
+
     // Fechar modal do quiz
     document.querySelector('.quiz-modal-overlay')?.remove();
-    
+
     // Mostrar notificação
     if (window.elearning?.showNotification) {
         window.elearning.showNotification('Quiz cancelado', 'info');
@@ -1851,7 +1881,7 @@ function confirmQuizCancel() {
     } else {
         alert('Quiz cancelado');
     }
-    
+
     // Voltar para a tela de trilhas (opcional)
     console.log('Quiz cancelled by user');
 }
@@ -1882,7 +1912,7 @@ function showStartModuleError(errorMessage) {
             </div>
         </div>
     `;
-    
+
     document.body.appendChild(modal);
 }
 
@@ -1904,9 +1934,9 @@ function getDifficultyLabel(difficulty) {
 }
 
 // Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     console.log('Trilhas Personalizadas DOM loaded');
-    
+
     // Wait for main elearning system to be ready
     const initWhenReady = () => {
         if (window.elearning) {
@@ -1917,7 +1947,7 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(initWhenReady, 500);
         }
     };
-    
+
     initWhenReady();
 });
 

@@ -36,10 +36,21 @@ function setupDashboardEventListeners() {
     }
 }
 
-// Load dashboard data
 async function loadDashboardData() {
     const currentUser = window.elearning?.getCurrentUser();
     if (!currentUser) return;
+    
+    const storedUserId = localStorage.getItem('elearning_user_id');
+    if (storedUserId && parseInt(storedUserId) !== currentUser.id) {
+        console.error('Dashboard: User ID mismatch! Stored:', storedUserId, 'Current:', currentUser.id);
+        console.error('Forcing logout to prevent data contamination');
+        window.elearning.logout();
+        window.elearning.showNotification('Sessão inválida. Por favor, faça login novamente.', 'error');
+        showModal('loginModal');
+        return;
+    }
+    
+    console.log('Loading dashboard for user:', currentUser.id, currentUser.email);
     
     try {
         // Load user profile with progress
@@ -526,7 +537,7 @@ function updateCustomTrilhasSection(customTrilhasData) {
         const dashboardGrid = document.querySelector('.dashboard-grid');
         if (dashboardGrid) {
             const customTrilhasCard = document.createElement('div');
-            customTrilhasCard.className = 'dashboard-card';
+            customTrilhasCard.className = 'dashboard-card bigger-card';
             customTrilhasCard.innerHTML = `
                 <div class="card-header">
                     <h3>Trilhas Criadas</h3>

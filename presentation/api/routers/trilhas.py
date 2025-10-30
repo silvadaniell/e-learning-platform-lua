@@ -159,6 +159,7 @@ async def delete_trilha(trilha_id: int):
 @router.get("/", response_model=APIResponse)
 async def list_trilhas(
     difficulty: Optional[str] = Query(None, description="Filter by difficulty level"),
+    user_id: Optional[int] = Query(None, ge=1, description="Filter trilhas by enrolled user ID"),
     limit: int = Query(50, ge=1, le=100, description="Maximum number of results"),
     offset: int = Query(0, ge=0, description="Number of results to skip")
 ):
@@ -166,17 +167,37 @@ async def list_trilhas(
     List trilhas with optional filtering.
     
     - **difficulty**: Filter by difficulty level (optional)
+    - **user_id**: Filter trilhas that belong to this user (optional)
     - **limit**: Maximum number of results (1-100)
     - **offset**: Number of results to skip for pagination
     """
-    if difficulty:
-        valid_difficulties = ["beginner", "intermediate", "advanced"]
-        if difficulty not in valid_difficulties:
+    valid_difficulties = ["beginner", "intermediate", "advanced"]
+    
+    if difficulty and difficulty not in valid_difficulties:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid difficulty level. Must be one of: {valid_difficulties}"
+        )
+
+    if user_id is not None:
+        usuario = await usuario_repository.get_by_id(user_id)
+        if not usuario:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid difficulty level. Must be one of: {valid_difficulties}"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
             )
-        trilhas = await trilha_repository.get_by_difficulty(difficulty)
+        trilhas = await trilha_repository.get_by_user(
+            user_id,
+            dificuldade=difficulty,
+            limit=limit,
+            offset=offset
+        )
+    elif difficulty:
+        trilhas = await trilha_repository.get_by_difficulty(
+            difficulty,
+            limit=limit,
+            offset=offset
+        )
     else:
         trilhas = await trilha_repository.get_all(limit, offset)
     
@@ -195,6 +216,7 @@ async def list_trilhas(
         data={
             "trilhas": trilha_list,
             "count": len(trilha_list),
+            "filtered_user_id": user_id,
             "limit": limit,
             "offset": offset
         }
@@ -425,4 +447,3 @@ async def get_trilha_completion_stats(trilha_id: int):
         success=True,
         data=completion_stats
     )
-

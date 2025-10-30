@@ -736,16 +736,32 @@ async def get_user_created_trilhas(user_id: int):
         usuario_repo = UsuarioRepository()
         desempenho_repo = DesempenhoRepository()
         
+        # LOG: Verificar qual user_id está sendo buscado
+        print(f"=== DEBUG: get_user_created_trilhas ===")
+        print(f"Buscando trilhas para user_id: {user_id}")
+        
         # Verificar se o usuário existe
         usuario = await usuario_repo.get_by_id(user_id)
         if not usuario:
+            print(f"ERRO: Usuário {user_id} não encontrado!")
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Usuário não encontrado"
             )
         
+        print(f"Usuário encontrado: ID={usuario.id}, Email={usuario.email}, Nome={usuario.nome}")
+        
         # Buscar trilhas criadas pelo usuário
         trilhas = await trilha_repo.get_by_criador(user_id)
+        
+        # LOG: Quantas trilhas foram encontradas
+        print(f"Trilhas encontradas no banco: {len(trilhas)}")
+        if trilhas:
+            print("Detalhes das trilhas:")
+            for t in trilhas:
+                print(f"  - ID={t.id}, Titulo={t.titulo}, criador_id={t.criador_id}")
+        else:
+            print("Nenhuma trilha encontrada para este usuário")
         
         # Map difficulty to Portuguese labels
         difficulty_map = {
@@ -782,6 +798,9 @@ async def get_user_created_trilhas(user_id: int):
             }
             trilhas_list.append(trilha_data)
         
+        print(f"Retornando {len(trilhas_list)} trilhas para o frontend")
+        print("===================================")
+        
         result = {
             "success": True,
             "trilhas": trilhas_list,
@@ -797,6 +816,8 @@ async def get_user_created_trilhas(user_id: int):
         raise
     except Exception as e:
         print(f"Error getting user created trilhas: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}"

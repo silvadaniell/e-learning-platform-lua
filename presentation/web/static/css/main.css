@@ -536,6 +536,16 @@ a:hover {
     color: #ff6b6b;
 }
 
+.dashboard-card.bigger-card {
+    grid-column: span 2;
+}
+
+@media (max-width: 768px) {
+    .dashboard-card.wide-card {
+        grid-column: span 1;
+    }
+}
+
 /* Quick Actions Section */
 .quick-actions-section {
     margin: var(--spacing-12) 0;

@@ -89,10 +89,10 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
             print(f"Error getting user content performance for user {user_id}, content {conteudo_id}: {e}")
             return None
     
-    async def update_progress(self, user_id: int, conteudo_id: int, progresso: float, 
-                            nota: Optional[float] = None, tempo_estudo: Optional[int] = None) -> Optional[Desempenho]:
+    async def update_progress(self, user_id: int, conteudo_id: int, progresso: int, 
+                             nota: Optional[float] = None, tempo_estudo: Optional[int] = None) -> Optional[Desempenho]:
         """
-        Update or create user's progress on content.
+        Update or create user's performance record.
         
         Args:
             user_id: User ID
@@ -144,7 +144,7 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
     
     async def get_user_trilha_progress(self, user_id: int, trilha_id: int) -> Dict[str, Any]:
         """
-        Get user's overall progress on a trilha (learning path).
+        Get user's progress summary for a specific trilha.
         
         Args:
             user_id: User ID
@@ -158,11 +158,9 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
             
             # Get all content in the trilha
             conteudos = db.query(Conteudo).filter(Conteudo.trilha_id == trilha_id).all()
-            if not conteudos:
-                return {}
-            
-            # Get user's performance on trilha content
             conteudo_ids = [c.id for c in conteudos]
+            
+            # Get performance records for user on these contents
             desempenhos = db.query(Desempenho).filter(
                 and_(
                     Desempenho.usuario_id == user_id,
@@ -175,7 +173,8 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
             
             if desempenhos:
                 avg_progress = sum(d.progresso for d in desempenhos) / len(desempenhos)
-                avg_grade = sum(d.nota for d in desempenhos if d.nota is not None) / len([d for d in desempenhos if d.nota is not None]) if any(d.nota is not None for d in desempenhos) else 0
+                graded = [d for d in desempenhos if d.nota is not None]
+                avg_grade = sum(d.nota for d in graded) / len(graded) if graded else 0
                 total_study_time = sum(d.tempo_estudo for d in desempenhos)
             else:
                 avg_progress = 0
@@ -277,43 +276,52 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
             user_id: User ID
             
         Returns:
-            Number of consecutive days with learning activity
+            Number of consecutive days with learning activity (minimum 1 if any activity exists)
         """
         try:
             db = self.get_db()
             
             # Get distinct dates with activity, ordered by date descending
             activity_dates = db.query(
-                func.date(Desempenho.updated_at).label('activity_date')
+                func.date(Desempenho.created_at).label('activity_date')
             ).filter(
                 Desempenho.usuario_id == user_id
             ).distinct().order_by(
-                desc(func.date(Desempenho.updated_at))
+                desc(func.date(Desempenho.created_at))
             ).all()
             
             if not activity_dates:
                 return 0
             
             # Convert to list of dates for easier manipulation
-            dates_list = [activity_date_tuple[0] for activity_date_tuple in activity_dates]
+            dates_list = [activity_date_tuple[0] for activity_date_tuple in activity_dates if activity_date_tuple[0] is not None]
+            
+            if not dates_list:
+                return 0
             
             today = datetime.utcnow().date()
-            streak = 0
+            streak = 1  # Começar com 1 se há atividade
             
             # Check if there's activity today or yesterday (streak is still valid)
-            most_recent_date = dates_list[0]
-            if most_recent_date < today - timedelta(days=1):
-                # No activity today or yesterday, streak is broken
-                return 0
+            most_recent_date = datetime.strptime(str(dates_list[0]), "%Y-%m-%d").date()
+            
+            # Calculate days since last activity
+            days_since_last_activity = (today - most_recent_date).days
+            
+            if days_since_last_activity > 1:
+                # Last activity was more than 1 day ago, but return 1 (início de nova sequência)
+                return 1
             
             # Count consecutive days starting from today or yesterday
             expected_date = today if most_recent_date == today else today - timedelta(days=1)
             
             for activity_date in dates_list:
-                if activity_date == expected_date:
+                activity_date_obj = datetime.strptime(str(activity_date), "%Y-%m-%d").date()
+                
+                if activity_date_obj == expected_date:
                     streak += 1
                     expected_date = expected_date - timedelta(days=1)
-                elif activity_date < expected_date:
+                else:
                     # There's a gap in the streak
                     break
             
@@ -322,16 +330,16 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
             print(f"Error calculating learning streak for user {user_id}: {e}")
             return 0
     
-    async def get_top_performers(self, limit: int = 10, metric: str = "progress") -> List[Dict[str, Any]]:
+    async def get_top_performers(self, metric: str = "progress", limit: int = 10) -> List[Dict[str, Any]]:
         """
         Get top performing users based on specified metric.
         
         Args:
-            limit: Maximum number of users to return
-            metric: Metric to rank by (progress, grade, study_time)
+            metric: Metric to rank by ("progress", "grade", or "study_time")
+            limit: Maximum number of results
             
         Returns:
-            List of top performers with their metrics
+            List of top performers with their data
         """
         try:
             db = self.get_db()
@@ -398,4 +406,3 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
         except Exception as e:
             print(f"Error getting top performers by {metric}: {e}")
             return []
-
