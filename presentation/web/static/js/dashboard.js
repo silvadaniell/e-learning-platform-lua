@@ -535,16 +535,16 @@ function updateCustomTrilhasSection(customTrilhasData) {
     const dashboardGrid = document.querySelector('.dashboard-grid');
     if (dashboardGrid) {
       const customTrilhasCard = document.createElement('div');
-      customTrilhasCard.className = 'dashboard-card';
+      customTrilhasCard.className = 'dashboard-card full-width-card';
       customTrilhasCard.innerHTML = `
-                <div class="card-header">
-                    <h3>Trilhas Criadas</h3>
-                    <i class="fas fa-magic"></i>
-                </div>
-                <div id="customTrilhasContainer">
-                    <!-- Custom trilhas content will be loaded here -->
-                </div>
-            `;
+        <div class="card-header">
+          <h3>Trilhas Criadas</h3>
+          <i class="fas fa-magic"></i>
+        </div>
+        <div id="customTrilhasContainer">
+          <!-- Custom trilhas content will be loaded here -->
+        </div>
+      `;
       dashboardGrid.appendChild(customTrilhasCard);
       customTrilhasContainer = document.getElementById('customTrilhasContainer');
     }

@@ -540,8 +540,13 @@ a:hover {
     grid-column: span 2;
 }
 
+.dashboard-card.full-width-card {
+    grid-column: 1 / -1;
+}
+
 @media (max-width: 768px) {
-    .dashboard-card.wide-card {
+    .dashboard-card.wide-card,
+    .dashboard-card.full-width-card {
         grid-column: span 1;
     }
 }
