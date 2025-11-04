@@ -44,6 +44,23 @@ class TrilhaRepository(BaseRepository[Trilha]):
             print(f"Error getting trilha with usuarios {trilha_id}: {e}")
             return None
     
+    async def get_all_trilhas(self, limit: int = 100) -> List[Trilha]:
+        """
+        Get all trilhas from database.
+        
+        Args:
+            limit: Maximum number of trilhas to return
+            
+        Returns:
+            List of all trilhas
+        """
+        try:
+            db = self.get_db()
+            return db.query(Trilha).limit(limit).all()
+        except Exception as e:
+            print(f"Error getting all trilhas: {e}")
+            return []
+    
     async def get_by_difficulty(
         self,
         dificuldade: str,

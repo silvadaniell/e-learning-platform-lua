@@ -436,12 +436,10 @@ async function showUserTrilhas() {
     }
 }
 
-// Display user trilhas
-function displayUserTrilhas(trilhas) {
+async function displayUserTrilhas(trilhas) {
     const trilhasGrid = document.getElementById('trilhasGrid');
     if (!trilhasGrid) return;
 
-    // Check if there are no trilhas
     if (!trilhas || trilhas.length === 0) {
         trilhasGrid.innerHTML = `
             <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 3rem;">
@@ -453,15 +451,54 @@ function displayUserTrilhas(trilhas) {
         return;
     }
 
-    // Map Portuguese difficulty to English for filter compatibility
+    const currentUser = window.elearning?.getCurrentUser();
+    if (!currentUser) return;
+
     const difficultyMap = {
         'iniciante': 'beginner',
         'intermediario': 'intermediate',
         'avancado': 'advanced'
     };
 
-    trilhasGrid.innerHTML = trilhas.map(trilha => {
+    const trilhasWithProgress = await Promise.all(trilhas.map(async (trilha) => {
+        let averageGrade = 0;
+        let hasStarted = false;
+        let isCompleted = false;
+        
+        try {
+            const progressResponse = await fetch(`/api/v1/trilhas/${trilha.id}/progress/${currentUser.id}`);
+            const progressResult = await progressResponse.json();
+            
+            if (progressResult.success && progressResult.data) {
+                const data = progressResult.data;
+                averageGrade = data.average_grade || 0;
+                hasStarted = (data.completed_content || 0) > 0 || (data.total_study_time_minutes || 0) > 0;
+                const overallProgress = data.overall_progress || 0;
+                const completedContent = data.completed_content || 0;
+                const totalContent = data.total_content || 0;
+                
+                if (totalContent > 0) {
+                    isCompleted = overallProgress >= 100 || completedContent === totalContent;
+                } else {
+                    isCompleted = false;
+                }
+            } else if (progressResult.success) {
+                isCompleted = false;
+            }
+        } catch (error) {
+            console.error(`Erro ao buscar progresso da trilha ${trilha.id}:`, error);
+        }
+        
+        return { ...trilha, averageGrade, hasStarted, isCompleted };
+    }));
+
+    trilhasGrid.innerHTML = trilhasWithProgress.map(trilha => {
         const englishDifficulty = difficultyMap[trilha.dificuldade] || trilha.dificuldade;
+        const buttonText = trilha.isCompleted ? 'Ver Resultado' : 'Iniciar';
+        const buttonIcon = trilha.isCompleted ? 'fa-chart-line' : 'fa-play';
+        const buttonAction = trilha.isCompleted ? `showTrilhaFinalResults(${trilha.id})` : `startTrilha(${trilha.id})`;
+        const showPercentage = trilha.isCompleted && trilha.averageGrade > 0;
+        
         return `
         <div class="trilha-card user-trilha" data-trilha-id="${trilha.id}" data-level="${englishDifficulty}">
             <div class="trilha-card-header">
@@ -484,15 +521,18 @@ function displayUserTrilhas(trilhas) {
                         <i class="fas fa-users"></i>
                         <span>${trilha.enrollment_count || 0} inscritos</span>
                     </div>
+                    ${showPercentage ? `
                     <div class="stat">
-                        <i class="fas fa-chart-line"></i>
-                        <span>${trilha.completion_rate || 0}% conclusão</span>
+                        <i class="fas fa-percentage"></i>
+                        <span>${Math.round(trilha.averageGrade)}% acerto</span>
                     </div>
+                    ` : ''}
                 </div>
-                <div class="trilha-actions">
-                    <button class="btn btn-primary" onclick="startTrilha(${trilha.id})">
-                        <i class="fas fa-play"></i>
-                        Continuar
+                <div class="trilha-actions" style="display: flex; align-items: center; gap: 1rem;">
+                    ${showPercentage ? `<span style="font-weight: 600; color: #667eea; font-size: 1.1rem;">${Math.round(trilha.averageGrade)}%</span>` : ''}
+                    <button class="btn btn-primary" onclick="${buttonAction}">
+                        <i class="fas ${buttonIcon}"></i>
+                        ${buttonText}
                     </button>
                     <button class="btn btn-outline" onclick="viewTrilhaDetails(${trilha.id})">
                         <i class="fas fa-info"></i>
@@ -503,7 +543,6 @@ function displayUserTrilhas(trilhas) {
         </div>
     `}).join('');
 
-    // Apply the current active filter after displaying trilhas
     applyActiveFilter();
 }
 
@@ -518,7 +557,7 @@ function applyActiveFilter() {
 }
 
 // Start trilha (begin first module)
-async function startTrilha(trilhaId) {
+window.startTrilha = async function startTrilha(trilhaId) {
     const currentUser = window.elearning?.getCurrentUser();
     if (!currentUser) {
         if (window.elearning?.showNotification) {
@@ -529,17 +568,28 @@ async function startTrilha(trilhaId) {
         return;
     }
 
-    console.log('Starting trilha:', trilhaId);
-
     try {
-        // Buscar detalhes da trilha
+        const progressResponse = await fetch(`/api/v1/trilhas/${trilhaId}/progress/${currentUser.id}`);
+        const progressResult = await progressResponse.json();
+        
+        let isCompleted = false;
+        if (progressResult.success && progressResult.data) {
+            const overallProgress = progressResult.data.overall_progress || 0;
+            const completedContent = progressResult.data.completed_content || 0;
+            const totalContent = progressResult.data.total_content || 0;
+            isCompleted = overallProgress >= 100 || (completedContent === totalContent && totalContent > 0);
+        }
+        
+        if (isCompleted) {
+            showTrilhaFinalResults(trilhaId);
+            return;
+        }
+        
         const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
         const result = await response.json();
 
         if (result.success && result.data) {
             const trilha = result.data;
-
-            // Mostrar modal de início da trilha
             showTrilhaStartModal(trilha);
         } else {
             throw new Error('Trilha não encontrada');
@@ -1000,20 +1050,64 @@ function showTrilhaDetailsModal(trilha) {
 }
 
 // Show trilha start modal
-function showTrilhaStartModal(trilha) {
+async function showTrilhaStartModal(trilha) {
+    const currentUser = window.elearning?.getCurrentUser();
+    if (!currentUser) return;
+
+    let userProgress = {};
+    let nextModule = null;
+    let completedModules = 0;
+    
+    try {
+        const progressResponse = await fetch(`/api/v1/trilhas/${trilha.id}/progress/${currentUser.id}`);
+        const progressResult = await progressResponse.json();
+        
+        if (progressResult.success && progressResult.data) {
+            userProgress = progressResult.data;
+            
+            if (trilha.modules && trilha.modules.length > 0) {
+                for (const module of trilha.modules) {
+                    const moduleProgress = userProgress.content_progress?.find(p => p.conteudo_id === module.id);
+                    if (!moduleProgress || moduleProgress.progresso < 100) {
+                        if (!nextModule) {
+                            nextModule = module;
+                        }
+                    } else {
+                        completedModules++;
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao buscar progresso:', error);
+    }
+
+    const totalModules = trilha.modules?.length || 0;
+    const overallProgress = userProgress.overall_progress || 0;
+    const allModulesCompleted = completedModules === totalModules && totalModules > 0;
+    const isCompleted = overallProgress >= 100 || allModulesCompleted;
+    
+    if (isCompleted) {
+        nextModule = null;
+    } else if (!nextModule && trilha.modules && trilha.modules.length > 0) {
+        nextModule = trilha.modules[0];
+    }
+    const buttonText = isCompleted ? 'Ver Resultados' : (completedModules > 0 ? 'Continuar' : 'Começar Agora');
+    const buttonIcon = isCompleted ? 'fa-chart-line' : (completedModules > 0 ? 'fa-play' : 'fa-play');
+    const buttonAction = isCompleted ? `showTrilhaFinalResults(${trilha.id})` : `startModuleFromModal(this, ${trilha.id}, ${nextModule ? JSON.stringify(nextModule).replace(/"/g, '&quot;') : 'null'})`;
+
     const modal = document.createElement('div');
     modal.className = 'modal-overlay trilha-modal-overlay';
     modal.innerHTML = `
         <div class="modal-content trilha-modal">
             <div class="modal-header">
-                <h3>Iniciar Trilha</h3>
+                <h3>${isCompleted ? 'Trilha Completa' : 'Iniciar Trilha'}</h3>
                 <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="trilha-start-info">
                     <h4>${trilha.titulo}</h4>
                     <p class="trilha-description">${trilha.descricao}</p>
-                    
                     <div class="trilha-overview">
                         <div class="overview-item">
                             <i class="fas fa-book"></i>
@@ -1033,12 +1127,23 @@ function showTrilhaStartModal(trilha) {
                         <div class="modules-preview">
                             <h5>Módulos da Trilha:</h5>
                             <ul>
-                                ${trilha.modules.map((module, index) => `
-                                    <li>
-                                        <strong>Módulo ${index + 1}:</strong> ${module.titulo}
-                                        <small>(${module.questions_count || 10} questões)</small>
-                                    </li>
-                                `).join('')}
+                                ${trilha.modules.map((module, index) => {
+                                    const moduleProgress = userProgress.content_progress?.find(p => p.conteudo_id === module.id);
+                                    const isModuleCompleted = moduleProgress && moduleProgress.progresso >= 100;
+                                    const isNext = nextModule && nextModule.id === module.id;
+                                    const moduleProgressPercent = isModuleCompleted ? 100 : (moduleProgress?.progresso || 0);
+                                    
+                                    return `
+                                        <li class="${isModuleCompleted ? 'completed' : ''} ${isNext ? 'next' : ''}">
+                                            ${isModuleCompleted ? '<i class="fas fa-check-circle"></i>' : ''}
+                                            ${isNext ? '<i class="fas fa-arrow-right"></i>' : ''}
+                                            <strong>Módulo ${index + 1}:</strong> ${module.titulo}
+                                            <small>(${module.questions_count || 10} questões)</small>
+                                            ${isModuleCompleted ? `<span class="module-status">✓ Completado (${moduleProgress.nota || 0}%)</span>` : (moduleProgressPercent > 0 ? `<span class="module-status">${moduleProgressPercent}%</span>` : '')}
+                                            ${isNext ? '<span class="module-status next-module">→ Próximo</span>' : ''}
+                                        </li>
+                                    `;
+                                }).join('')}
                             </ul>
                         </div>
                     ` : ''}
@@ -1048,15 +1153,180 @@ function showTrilhaStartModal(trilha) {
                 <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">
                     Cancelar
                 </button>
-                <button class="btn btn-primary" onclick="startFirstModuleWithLoadingInModal(this, ${trilha.id})">
-                    <i class="fas fa-play"></i>
-                    Começar Agora
+                <button class="btn btn-primary" onclick="${buttonAction}; this.closest('.modal-overlay').remove();">
+                    <i class="fas ${buttonIcon}"></i>
+                    ${buttonText}
                 </button>
             </div>
         </div>
     `;
 
     document.body.appendChild(modal);
+}
+
+window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) {
+    const currentUser = window.elearning?.getCurrentUser();
+    if (!currentUser) return;
+
+    try {
+        const trilhaResponse = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
+        const trilhaResult = await trilhaResponse.json();
+        
+        if (!trilhaResult.success || !trilhaResult.data) {
+            throw new Error('Erro ao carregar detalhes da trilha');
+        }
+
+        const trilha = trilhaResult.data;
+        const progressResponse = await fetch(`/api/v1/trilhas/${trilhaId}/progress/${currentUser.id}`);
+        const progressResult = await progressResponse.json();
+        
+        if (!progressResult.success || !progressResult.data) {
+            throw new Error('Erro ao carregar progresso');
+        }
+
+        const userProgress = progressResult.data;
+        const completedModules = trilha.modules?.filter(module => {
+            const moduleProgress = userProgress.content_progress?.find(p => p.conteudo_id === module.id);
+            return moduleProgress && moduleProgress.progresso >= 100;
+        }) || [];
+
+        const totalQuestions = completedModules.reduce((sum, m) => sum + (m.questions_count || 10), 0);
+        const totalCorrect = completedModules.reduce((sum, m) => {
+            const progress = userProgress.content_progress?.find(p => p.conteudo_id === m.id);
+            const nota = progress?.nota || 0;
+            const questions = m.questions_count || 10;
+            return sum + Math.round((nota / 100) * questions);
+        }, 0);
+        const averageScore = completedModules.length > 0 
+            ? Math.round(completedModules.reduce((sum, m) => {
+                const progress = userProgress.content_progress?.find(p => p.conteudo_id === m.id);
+                return sum + (progress?.nota || 0);
+            }, 0) / completedModules.length)
+            : 0;
+        const totalStudyTime = userProgress.total_study_time_minutes || 0;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay trilha-results-overlay';
+        modal.innerHTML = `
+            <div class="modal-content trilha-results-modal" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+                <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem;">
+                    <h2 style="margin: 0; font-size: 1.8rem;">🎉 Trilha Concluída!</h2>
+                    <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">${trilha.titulo}</p>
+                </div>
+                <div class="modal-body" style="padding: 2rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
+                        <div style="text-align: center; padding: 1.5rem; background: #f8f9fa; border-radius: 12px;">
+                            <div style="font-size: 2.5rem; font-weight: bold; color: #667eea; margin-bottom: 0.5rem;">${averageScore}%</div>
+                            <div style="color: #666; font-size: 0.9rem;">Nota Média</div>
+                        </div>
+                        <div style="text-align: center; padding: 1.5rem; background: #f8f9fa; border-radius: 12px;">
+                            <div style="font-size: 2.5rem; font-weight: bold; color: #28a745; margin-bottom: 0.5rem;">${totalCorrect}/${totalQuestions}</div>
+                            <div style="color: #666; font-size: 0.9rem;">Acertos</div>
+                        </div>
+                        <div style="text-align: center; padding: 1.5rem; background: #f8f9fa; border-radius: 12px;">
+                            <div style="font-size: 2.5rem; font-weight: bold; color: #17a2b8; margin-bottom: 0.5rem;">${completedModules.length}</div>
+                            <div style="color: #666; font-size: 0.9rem;">Módulos</div>
+                        </div>
+                        <div style="text-align: center; padding: 1.5rem; background: #f8f9fa; border-radius: 12px;">
+                            <div style="font-size: 2.5rem; font-weight: bold; color: #ffc107; margin-bottom: 0.5rem;">${Math.floor(totalStudyTime / 60)}h ${totalStudyTime % 60}m</div>
+                            <div style="color: #666; font-size: 0.9rem;">Tempo</div>
+                        </div>
+                    </div>
+
+                    <h3 style="margin-bottom: 1.5rem; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">Resultados por Módulo</h3>
+                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                        ${completedModules.map((module, index) => {
+                            const moduleProgress = userProgress.content_progress?.find(p => p.conteudo_id === module.id);
+                            const nota = moduleProgress?.nota || 0;
+                            const questions = module.questions_count || 10;
+                            const correct = Math.round((nota / 100) * questions);
+                            const wrong = questions - correct;
+                            
+                            return `
+                                <div style="border: 1px solid #e0e0e0; border-radius: 12px; padding: 1.5rem; background: white;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                        <div>
+                                            <h4 style="margin: 0; color: #333; font-size: 1.1rem;">Módulo ${index + 1}: ${module.titulo}</h4>
+                                            <p style="margin: 0.5rem 0 0 0; color: #666; font-size: 0.9rem;">${questions} questões</p>
+                                        </div>
+                                        <div style="text-align: right;">
+                                            <div style="font-size: 2rem; font-weight: bold; color: ${nota >= 70 ? '#28a745' : nota >= 50 ? '#ffc107' : '#dc3545'};">
+                                                ${nota}%
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                                        <div style="flex: 1; padding: 0.75rem; background: #d4edda; border-radius: 8px; text-align: center;">
+                                            <div style="font-size: 1.5rem; font-weight: bold; color: #28a745;">${correct}</div>
+                                            <div style="font-size: 0.85rem; color: #666;">Corretas</div>
+                                        </div>
+                                        <div style="flex: 1; padding: 0.75rem; background: #f8d7da; border-radius: 8px; text-align: center;">
+                                            <div style="font-size: 1.5rem; font-weight: bold; color: #dc3545;">${wrong}</div>
+                                            <div style="font-size: 0.85rem; color: #666;">Incorretas</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 1.5rem; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">
+                        Fechar
+                    </button>
+                    <button class="btn btn-primary" onclick="this.closest('.modal-overlay').remove(); goToDashboard()">
+                        <i class="fas fa-home"></i>
+                        Ir para Dashboard
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+    } catch (error) {
+        console.error('Erro ao carregar resultados:', error);
+        if (window.elearning?.showNotification) {
+            window.elearning.showNotification('Erro ao carregar resultados: ' + error.message, 'error');
+        }
+    }
+}
+
+async function startModuleFromModal(button, trilhaId, nextModuleData) {
+    const originalHTML = button.innerHTML;
+    button.innerHTML = '<div class="btn-spinner"></div> Carregando...';
+    button.disabled = true;
+
+    try {
+        const modal = button.closest('.modal-overlay');
+        
+        if (!nextModuleData) {
+            const response = await fetch(`/api/v1/trilhas-personalizadas/trilha/${trilhaId}/details`);
+            const result = await response.json();
+            
+            if (result.success && result.data && result.data.modules && result.data.modules.length > 0) {
+                nextModuleData = result.data.modules[0];
+            } else {
+                throw new Error('Nenhum módulo encontrado');
+            }
+        }
+
+        let module = nextModuleData;
+        if (typeof nextModuleData === 'string') {
+            module = JSON.parse(nextModuleData.replace(/&quot;/g, '"'));
+        }
+
+        button.innerHTML = '<div class="btn-spinner"></div> Preparando Quiz...';
+        
+        showLoadingInModal();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        await startModuleQuizWithModalControl(trilhaId, module);
+    } catch (error) {
+        console.error('Erro ao iniciar módulo:', error);
+        button.innerHTML = originalHTML;
+        button.disabled = false;
+        showStartModuleError(error.message);
+    }
 }
 
 // Start first module with loading in modal
@@ -1451,7 +1721,7 @@ function initializeQuiz(trilhaId, module, questions, modal) {
 }
 
 // Finish quiz and show results
-function finishQuiz(trilhaId, module, questions, answers, startTime, timerInterval) {
+async function finishQuiz(trilhaId, module, questions, answers, startTime, timerInterval) {
     clearInterval(timerInterval);
 
     const endTime = Date.now();
@@ -1474,9 +1744,51 @@ function finishQuiz(trilhaId, module, questions, answers, startTime, timerInterv
     });
 
     const percentage = Math.round((correctAnswers / questions.length) * 100);
+    const tempoEstudoMinutos = Math.floor(totalTime / 60);
+
+    const currentUser = window.elearning?.getCurrentUser();
+    if (currentUser && module && module.id) {
+        try {
+            await saveQuizProgress(currentUser.id, module.id, percentage, tempoEstudoMinutos);
+            console.log('Progresso do quiz salvo com sucesso');
+        } catch (error) {
+            console.error('Erro ao salvar progresso do quiz:', error);
+            if (window.elearning?.showNotification) {
+                window.elearning.showNotification('Erro ao salvar progresso, mas você pode continuar', 'warning');
+            }
+        }
+    }
 
     // Mostrar resultados
     showQuizResults(trilhaId, module, results, correctAnswers, questions.length, totalTime, percentage);
+}
+
+async function saveQuizProgress(userId, conteudoId, nota, tempoEstudo) {
+    try {
+        const response = await fetch('/api/v1/trilhas/progress/update', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                user_id: userId,
+                conteudo_id: conteudoId,
+                progresso: 100,
+                nota: nota,
+                tempo_estudo: tempoEstudo
+            })
+        });
+
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error(result.detail || 'Erro ao salvar progresso');
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('Erro ao salvar progresso:', error);
+        throw error;
+    }
 }
 
 // Show quiz results
@@ -1957,8 +2269,9 @@ window.trilhasPersonalizadas = {
     checkStatus: checkUserTrilhaStatus,
     showCreateModal: showCreateTrilhaModal,
     showUserTrilhas: showUserTrilhas,
-    startTrilha: startTrilha,
-    startQuizSession: startQuizSession
+    startTrilha: window.startTrilha,
+    startQuizSession: startQuizSession,
+    showTrilhaFinalResults: window.showTrilhaFinalResults
 };
 
 // Also export showUserTrilhas directly for easier access

@@ -24,32 +24,28 @@ class RecommendationEngine:
     
     async def generate_personalized_recommendations(self, user_id: int) -> Dict[str, Any]:
         """
-        Generate AI-powered personalized learning recommendations.
+        Gera recomendações personalizadas de aprendizado usando IA.
         
         Args:
-            user_id: User ID
+            user_id: ID do usuário
             
         Returns:
-            AI-generated recommendations
+            Recomendações geradas pela IA
         """
         try:
-            # Gather user data
             user_data = await self._collect_user_data(user_id)
             if not user_data["success"]:
                 return user_data
             
-            # Generate AI recommendations
             ai_recommendations = await gemini_client.generate_learning_recommendations(
                 user_data["profile"],
                 user_data["learning_history"]
             )
             
-            # Process and structure recommendations
             structured_recommendations = await self._process_ai_recommendations(
                 user_id, ai_recommendations, user_data
             )
             
-            # Track recommendation generation
             await analytics_service.track_event(
                 "ai_recommendations_generated",
                 user_id,
@@ -73,27 +69,23 @@ class RecommendationEngine:
     
     async def _collect_user_data(self, user_id: int) -> Dict[str, Any]:
         """
-        Collect comprehensive user data for AI analysis.
+        Coleta dados abrangentes do usuário para análise pela IA.
         
         Args:
-            user_id: User ID
+            user_id: ID do usuário
             
         Returns:
-            User data dictionary
+            Dicionário com dados do usuário
         """
         try:
-            # Get user profile
             user = await self.usuario_repository.get_with_trilhas(user_id)
             if not user:
-                return {"success": False, "error": "User not found"}
+                return {"success": False, "error": "Usuário não encontrado"}
             
-            # Get learning analytics
             analytics = await self.desempenho_repository.get_learning_analytics(user_id, days=30)
             
-            # Get recent performance data
             recent_performance = await self.desempenho_repository.get_user_performance(user_id, limit=20)
             
-            # Structure user profile for AI
             user_profile = {
                 "nome": user.nome,
                 "email": user.email,
@@ -109,7 +101,6 @@ class RecommendationEngine:
                 "learning_analytics": analytics
             }
             
-            # Structure learning history for AI
             learning_history = []
             for desempenho in recent_performance:
                 if hasattr(desempenho, 'conteudo') and desempenho.conteudo:
@@ -133,111 +124,208 @@ class RecommendationEngine:
     
     async def _process_ai_recommendations(self, user_id: int, ai_text: str, user_data: Dict) -> Dict[str, Any]:
         """
-        Process AI-generated text into structured recommendations.
+        Processa texto gerado pela IA em recomendações estruturadas de materiais.
         
         Args:
-            user_id: User ID
-            ai_text: AI-generated recommendation text
-            user_data: User data used for generation
+            user_id: ID do usuário
+            ai_text: Texto de recomendação gerado pela IA (formato JSON)
+            user_data: Dados do usuário usados para geração
             
         Returns:
-            Structured recommendations
+            Recomendações estruturadas com materiais externos
         """
         try:
-            # Parse AI recommendations and match with available content
-            available_trilhas = await self.trilha_repository.get_recommended_trilhas_for_user(user_id, limit=10)
-            popular_trilhas = await self.trilha_repository.get_popular_trilhas(limit=5)
+            import json
+            import re
+            import urllib.parse
+            from urllib.parse import urlparse
             
-            # Create structured recommendations
+            ai_recommendations_data = None
+            try:
+                json_match = re.search(r'\{.*\}', ai_text, re.DOTALL)
+                if json_match:
+                    ai_recommendations_data = json.loads(json_match.group())
+                else:
+                    ai_recommendations_data = json.loads(ai_text)
+            except (json.JSONDecodeError, AttributeError) as e:
+                print(f"Erro ao processar resposta JSON da IA: {e}")
+                print(f"Texto da resposta: {ai_text[:500]}")
+                ai_recommendations_data = None
+            
             recommendations = []
             
-            # Add trilha recommendations based on user profile
-            user_profile = user_data["profile"]
-            difficulty_level = user_profile.get("perfil_aprend", "beginner")
+            if ai_recommendations_data and "material_recommendations" in ai_recommendations_data:
+                ai_materials = ai_recommendations_data["material_recommendations"]
+                
+                for ai_material in ai_materials:
+                    material_type = ai_material.get("type", "material").lower()
+                    material_title = ai_material.get("title", "Material recomendado")
+                    
+                    search_terms = ai_material.get("search_terms", "").strip()
+                    if not search_terms or len(search_terms) < 3:
+                        search_terms = material_title
+                        if material_type == "youtube":
+                            search_terms = f"{material_title} tutorial"
+                        elif material_type == "course":
+                            search_terms = f"{material_title} curso gratuito"
+                    
+                    material_url = ai_material.get("url", "").strip()
+                    
+                    is_valid_url = False
+                    if material_url:
+                        if material_url.startswith(("http://", "https://")):
+                            try:
+                                parsed = urlparse(material_url)
+                                if parsed.netloc:
+                                    is_valid_url = True
+                            except:
+                                is_valid_url = False
+                    
+                    if not is_valid_url:
+                        encoded_terms = urllib.parse.quote_plus(search_terms)
+                        
+                        if material_type == "youtube":
+                            material_url = f"https://www.youtube.com/results?search_query={encoded_terms}"
+                        elif material_type == "course":
+                            material_url = f"https://www.google.com/search?q={encoded_terms}+curso+gratuito"
+                        elif material_type in ["article", "documentation"]:
+                            material_url = f"https://www.google.com/search?q={encoded_terms}"
+                        else:
+                            material_url = f"https://www.google.com/search?q={encoded_terms}"
+                    
+                    recommendation = {
+                        "type": material_type,
+                        "title": material_title,
+                        "description": ai_material.get("description", ""),
+                        "reason": ai_material.get("reason", "Recomendado com base no seu perfil de aprendizado"),
+                        "url": material_url,
+                        "search_terms": search_terms,
+                        "difficulty": ai_material.get("difficulty", "intermediario"),
+                        "estimated_time": ai_material.get("estimated_time", "N/A"),
+                        "free": ai_material.get("free", True),
+                        "confidence": ai_material.get("confidence", 0.8),
+                        "source": "ai_personalized"
+                    }
+                    
+                    recommendations.append(recommendation)
             
-            for trilha in available_trilhas[:3]:  # Top 3 recommendations
-                recommendations.append({
-                    "type": "trilha",
-                    "id": trilha.id,
-                    "titulo": trilha.titulo,
-                    "dificuldade": trilha.dificuldade,
-                    "reason": f"Matches your {difficulty_level} learning profile",
-                    "confidence": 0.85,
-                    "source": "ai_analysis"
-                })
+            if len(recommendations) < 3:
+                user_profile = user_data["profile"]
+                difficulty_level = user_profile.get("perfil_aprend", "beginner")
+                
+                difficulty_map = {
+                    "beginner": "iniciante",
+                    "intermediate": "intermediario",
+                    "advanced": "avancado",
+                    "iniciante": "iniciante",
+                    "intermediario": "intermediario",
+                    "avancado": "avancado"
+                }
+                difficulty_pt = difficulty_map.get(difficulty_level, "intermediario")
+                
+                generic_resources = [
+                    {
+                        "type": "youtube",
+                        "title": f"Cursos gratuitos para nível {difficulty_pt}",
+                        "description": "Explore cursos gratuitos no YouTube",
+                        "reason": "Recursos gratuitos para complementar seus estudos",
+                        "search_terms": f"cursos gratuitos {difficulty_pt}",
+                        "difficulty": difficulty_pt,
+                        "estimated_time": "Varia",
+                        "free": True,
+                        "confidence": 0.6,
+                        "source": "generic_fallback"
+                    },
+                    {
+                        "type": "course",
+                        "title": f"Cursos online gratuitos - Nível {difficulty_pt}",
+                        "description": "Encontre cursos gratuitos em plataformas como Coursera, edX, Khan Academy",
+                        "reason": "Cursos estruturados para seu nível de aprendizado",
+                        "search_terms": f"cursos online gratuitos {difficulty_pt}",
+                        "difficulty": difficulty_pt,
+                        "estimated_time": "Varia",
+                        "free": True,
+                        "confidence": 0.6,
+                        "source": "generic_fallback"
+                    }
+                ]
+                
+                for generic in generic_resources:
+                    if len(recommendations) >= 6:
+                        break
+                    encoded_terms = urllib.parse.quote_plus(generic["search_terms"])
+                    if generic["type"] == "youtube":
+                        generic["url"] = f"https://www.youtube.com/results?search_query={encoded_terms}"
+                    else:
+                        generic["url"] = f"https://www.google.com/search?q={encoded_terms}"
+                    recommendations.append(generic)
             
-            # Add popular content recommendations
-            for popular in popular_trilhas[:2]:  # Top 2 popular
-                if popular["trilha"].id not in [r["id"] for r in recommendations]:
-                    recommendations.append({
-                        "type": "trilha",
-                        "id": popular["trilha"].id,
-                        "titulo": popular["trilha"].titulo,
-                        "dificuldade": popular["trilha"].dificuldade,
-                        "reason": f"Popular choice with {popular['enrollment_count']} enrollments",
-                        "confidence": 0.75,
-                        "source": "popularity_based"
-                    })
-            
-            # Add learning habit recommendations based on analytics
             analytics = user_data["profile"].get("learning_analytics", {})
             habit_recommendations = self._generate_habit_recommendations(analytics)
             
+            ai_insights = ""
+            if ai_recommendations_data:
+                ai_insights = ai_recommendations_data.get("general_insights", "") or ai_text
+            else:
+                ai_insights = ai_text
+            
             return {
-                "content_recommendations": recommendations,
+                "content_recommendations": recommendations[:6],
                 "habit_recommendations": habit_recommendations,
-                "ai_insights": ai_text,
+                "ai_insights": ai_insights,
+                "learning_path_suggestions": ai_recommendations_data.get("learning_path_suggestions", "") if ai_recommendations_data else "",
+                "study_schedule": ai_recommendations_data.get("study_schedule", "") if ai_recommendations_data else "",
+                "improvement_areas": ai_recommendations_data.get("improvement_areas", "") if ai_recommendations_data else "",
                 "total_recommendations": len(recommendations) + len(habit_recommendations)
             }
         except Exception as e:
             print(f"Error processing AI recommendations: {e}")
+            import traceback
+            traceback.print_exc()
             return {"content_recommendations": [], "habit_recommendations": [], "ai_insights": ai_text}
     
     def _generate_habit_recommendations(self, analytics: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
-        Generate learning habit recommendations based on analytics.
+        Gera recomendações de hábitos de aprendizado baseadas em analytics.
         
         Args:
-            analytics: User learning analytics
+            analytics: Analytics de aprendizado do usuário
             
         Returns:
-            List of habit recommendations
+            Lista de recomendações de hábitos
         """
         recommendations = []
         
-        # Study time recommendations
         daily_study_time = analytics.get("daily_average_study_time", 0)
-        if daily_study_time < 0.5:  # Less than 30 minutes
+        if daily_study_time < 0.5:
             recommendations.append({
                 "type": "study_habit",
-                "title": "Increase Daily Study Time",
-                "description": "Try to study for at least 30 minutes daily for better retention",
-                "current_value": f"{daily_study_time:.1f} hours/day",
-                "target_value": "0.5+ hours/day",
+                "title": "Aumentar Tempo de Estudo Diário",
+                "description": "Tente estudar pelo menos 30 minutos por dia para melhor retenção",
+                "current_value": f"{daily_study_time:.1f} horas/dia",
+                "target_value": "0.5+ horas/dia",
                 "priority": "high"
             })
         
-        # Consistency recommendations
         learning_streak = analytics.get("learning_streak", 0)
         if learning_streak < 3:
             recommendations.append({
                 "type": "consistency",
-                "title": "Build Learning Consistency",
-                "description": "Try to learn something every day to build a strong habit",
-                "current_value": f"{learning_streak} day streak",
-                "target_value": "7+ day streak",
+                "title": "Construir Consistência de Aprendizado",
+                "description": "Tente aprender algo todos os dias para construir um hábito forte",
+                "current_value": f"{learning_streak} dias de sequência",
+                "target_value": "7+ dias de sequência",
                 "priority": "medium"
             })
         
-        # Completion rate recommendations
         completion_rate = analytics.get("completion_rate", 0)
         if completion_rate < 70:
             recommendations.append({
                 "type": "completion",
-                "title": "Focus on Completing Content",
-                "description": "Try to complete more content before starting new topics",
-                "current_value": f"{completion_rate}% completion rate",
-                "target_value": "80%+ completion rate",
+                "title": "Focar em Completar Conteúdo",
+                "description": "Tente completar mais conteúdo antes de começar novos tópicos",
+                "current_value": f"{completion_rate}% taxa de conclusão",
+                "target_value": "80%+ taxa de conclusão",
                 "priority": "medium"
             })
         
