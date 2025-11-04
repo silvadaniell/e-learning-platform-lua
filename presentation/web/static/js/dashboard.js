@@ -582,7 +582,7 @@ function updateLearningPathSection(learningPathData) {
                         </div>
                     </div>
                     <button class="btn btn-primary btn-small" onclick="openTrilha(${path.trilha.id})">
-                        Continuar
+                        ${path.progress.completion_rate >= 100 ? 'Ver Resultado' : 'Iniciar'}
                     </button>
                 </div>
             `).join('')}
@@ -965,32 +965,26 @@ function updateCustomTrilhasSection(customTrilhasData) {
                 <span class="stat-label">Taxa Média de Conclusão</span>
             </div>
         </div>
-        <div class="custom-trilhas-list">
+        <div class="custom-trilhas-list" id="customTrilhasList">
             ${trilhas.slice(0, 3).map(trilha => `
-                <div class="trilha-item">
+                <div class="trilha-item" data-trilha-id="${trilha.id}">
                     <div class="trilha-info">
                         <h4>${trilha.titulo}</h4>
                         <div class="trilha-meta">
                             <span class="difficulty-badge difficulty-${trilha.dificuldade}">
                                 ${getDifficultyLabel(trilha.dificuldade)}
                             </span>
-                            <span class="modules-count">${trilha.modules_count || 0} módulos</span>
                         </div>
                     </div>
                     <div class="trilha-stats">
-                        <div class="stat">
-                            <i class="fas fa-users"></i>
-                            <span>${trilha.enrollment_count || 0}</span>
-                        </div>
-                        <div class="stat">
-                            <i class="fas fa-chart-line"></i>
-                            <span>${trilha.completion_rate || 0}%</span>
-                        </div>
+                        <span class="trilha-percentage" style="font-weight: 600; color: #667eea; font-size: 0.9rem; display: none;"></span>
                     </div>
-                    <button class="btn btn-small btn-outline" onclick="window.trilhasPersonalizadas?.startTrilha(${trilha.id})">
-                        <i class="fas fa-play"></i>
-                        Continuar
-                    </button>
+                    <div class="trilha-actions" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <button class="btn btn-small btn-outline" onclick="window.trilhasPersonalizadas?.startTrilha(${trilha.id})">
+                            <i class="fas fa-info"></i>
+                            Abrir
+                        </button>
+                    </div>
                 </div>
             `).join('')}
         </div>
@@ -1021,7 +1015,66 @@ function updateCustomTrilhasSection(customTrilhasData) {
       });
       customTrilhasCard.style.opacity = '1';
     }
+    
+    updateCustomTrilhasButtons(trilhas.slice(0, 3));
   }, 100);
+}
+
+async function updateCustomTrilhasButtons(trilhas) {
+  const currentUser = window.elearning?.getCurrentUser();
+  if (!currentUser || !trilhas || trilhas.length === 0) return;
+  
+  for (const trilha of trilhas) {
+    try {
+      const progressResponse = await fetch(`/api/v1/trilhas/${trilha.id}/progress/${currentUser.id}`);
+      const progressResult = await progressResponse.json();
+      
+      if (progressResult.success && progressResult.data) {
+        const averageGrade = progressResult.data.average_grade || 0;
+        const overallProgress = progressResult.data.overall_progress || 0;
+        const completedContent = progressResult.data.completed_content || 0;
+        const totalContent = progressResult.data.total_content || 0;
+        const isCompleted = overallProgress >= 100 || (completedContent === totalContent && totalContent > 0);
+        
+        const trilhaItem = document.querySelector(`[data-trilha-id="${trilha.id}"]`);
+        if (trilhaItem) {
+          const button = trilhaItem.querySelector('.trilha-actions button');
+          const statsDiv = trilhaItem.querySelector('.trilha-stats');
+          
+          if (button) {
+            if (isCompleted) {
+              button.innerHTML = `<i class="fas fa-chart-line"></i> Ver Resultado`;
+              button.setAttribute('onclick', `window.trilhasPersonalizadas?.showTrilhaFinalResults(${trilha.id})`);
+            } else {
+              button.innerHTML = `<i class="fas fa-play"></i> Iniciar`;
+              button.setAttribute('onclick', `window.trilhasPersonalizadas?.startTrilha(${trilha.id})`);
+            }
+          }
+          
+          if (statsDiv) {
+            if (averageGrade > 0) {
+              let percentageSpan = statsDiv.querySelector('.trilha-percentage');
+              if (!percentageSpan) {
+                percentageSpan = document.createElement('span');
+                percentageSpan.className = 'trilha-percentage';
+                percentageSpan.style.cssText = 'font-weight: 600; color: #667eea; font-size: 0.9rem;';
+                statsDiv.appendChild(percentageSpan);
+              }
+              percentageSpan.textContent = `${Math.round(averageGrade)}% de acerto`;
+              percentageSpan.style.display = 'inline';
+            } else {
+              const percentageSpan = statsDiv.querySelector('.trilha-percentage');
+              if (percentageSpan) {
+                percentageSpan.style.display = 'none';
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Erro ao buscar progresso da trilha ${trilha.id}:`, error);
+    }
+  }
 }
 
 // Export dashboard data

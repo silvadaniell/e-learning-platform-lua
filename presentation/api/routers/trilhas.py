@@ -394,10 +394,19 @@ async def get_user_trilha_progress(trilha_id: int, user_id: int):
     progress = await desempenho_repository.get_user_trilha_progress(user_id, trilha_id)
     
     if not progress:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User or trilha not found, or no progress data available"
-        )
+        progress = {
+            "user_id": user_id,
+            "trilha_id": trilha_id,
+            "total_content": 0,
+            "completed_content": 0,
+            "completion_rate": 0,
+            "overall_progress": 0,
+            "average_progress": 0,
+            "average_grade": 0,
+            "total_study_time_minutes": 0,
+            "total_study_time_hours": 0,
+            "content_progress": []
+        }
     
     return APIResponse(
         success=True,

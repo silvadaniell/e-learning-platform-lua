@@ -169,28 +169,53 @@ class DesempenhoRepository(BaseRepository[Desempenho]):
             ).all()
             
             total_content = len(conteudos)
-            completed_content = len([d for d in desempenhos if d.progresso >= 100])
             
-            if desempenhos:
-                avg_progress = sum(d.progresso for d in desempenhos) / len(desempenhos)
-                graded = [d for d in desempenhos if d.nota is not None]
+            desempenho_dict = {}
+            for d in desempenhos:
+                if d.conteudo_id not in desempenho_dict or d.updated_at > desempenho_dict[d.conteudo_id].updated_at:
+                    desempenho_dict[d.conteudo_id] = d
+            
+            completed_content = len([c.id for c in conteudos if desempenho_dict.get(c.id) and desempenho_dict[c.id].progresso >= 100])
+            
+            desempenhos_unicos = list(desempenho_dict.values())
+            
+            if desempenhos_unicos:
+                avg_progress = sum(d.progresso for d in desempenhos_unicos) / len(desempenhos_unicos)
+                graded = [d for d in desempenhos_unicos if d.nota is not None]
                 avg_grade = sum(d.nota for d in graded) / len(graded) if graded else 0
-                total_study_time = sum(d.tempo_estudo for d in desempenhos)
+                total_study_time = sum(d.tempo_estudo for d in desempenhos_unicos)
             else:
                 avg_progress = 0
                 avg_grade = 0
                 total_study_time = 0
+            
+            content_progress = []
+            
+            for conteudo in conteudos:
+                desempenho = desempenho_dict.get(conteudo.id)
+                progresso = desempenho.progresso if desempenho else 0
+                content_progress.append({
+                    "conteudo_id": conteudo.id,
+                    "progresso": progresso,
+                    "nota": desempenho.nota if desempenho else None,
+                    "tempo_estudo": desempenho.tempo_estudo if desempenho else 0,
+                    "updated_at": desempenho.updated_at.isoformat() if desempenho and desempenho.updated_at else None
+                })
+            
+            overall_progress = round((completed_content / total_content * 100), 2) if total_content > 0 else 0
             
             return {
                 "user_id": user_id,
                 "trilha_id": trilha_id,
                 "total_content": total_content,
                 "completed_content": completed_content,
-                "completion_rate": round(completed_content / total_content * 100, 2) if total_content > 0 else 0,
+                "completion_rate": overall_progress,
+                "overall_progress": overall_progress,
                 "average_progress": round(avg_progress, 2),
                 "average_grade": round(avg_grade, 2),
                 "total_study_time_minutes": total_study_time,
-                "total_study_time_hours": round(total_study_time / 60, 2)
+                "total_study_time_hours": round(total_study_time / 60, 2),
+                "content_progress": content_progress
             }
         except Exception as e:
             print(f"Error getting user trilha progress for user {user_id}, trilha {trilha_id}: {e}")
