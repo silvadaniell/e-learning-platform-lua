@@ -9,13 +9,11 @@ from presentation.api.schemas.user_schemas import (
     UserCreate, UserUpdate, UserResponse, UserProfileResponse, 
     UserSearchResponse, UserRecommendationsResponse, APIResponse, UserLogin
 )
-from lua_bridge.lua_engine import get_lua_engine
 from infrastructure.security.auth import get_current_user_token
 from business.core.usuario_manager import UsuarioManager
 
 router = APIRouter()
 
-# Initialize usuario manager
 usuario_manager = UsuarioManager()
 
 @router.post("/register", response_model=APIResponse, status_code=status.HTTP_201_CREATED)
@@ -28,18 +26,7 @@ async def register_user(user_data: UserCreate):
     - **senha**: User's password (required, minimum 6 characters)
     - **perfil_aprend**: Learning profile (optional, defaults to 'beginner')
     """
-    lua_engine = get_lua_engine()
-    
-    # Convert Pydantic model to dict and map fields for Lua
-    user_dict = user_data.model_dump()
-    lua_user_data = {
-        "email": user_dict["email"],
-        "name": user_dict["nome"],
-        "password": user_dict["senha"],
-        "learning_profile": user_dict.get("perfil_aprend", "beginner")
-    }
-    
-    result = lua_engine.create_user(lua_user_data)
+    result = await usuario_manager.create_user(user_data.model_dump())
     
     if not result["success"]:
         raise HTTPException(
@@ -50,7 +37,7 @@ async def register_user(user_data: UserCreate):
     return APIResponse(
         success=True,
         message="User registered successfully",
-        data=result["data"]
+        data=result["user"]
     )
 
 @router.post("/login", response_model=APIResponse)
@@ -63,8 +50,7 @@ async def login_user(login_data: UserLogin):
     
     Returns access token for authentication.
     """
-    lua_engine = get_lua_engine()
-    result = lua_engine.authenticate_user(login_data.email, login_data.password)
+    result = await usuario_manager.authenticate_user(login_data.email, login_data.password)
     
     if not result["success"]:
         raise HTTPException(
@@ -75,7 +61,11 @@ async def login_user(login_data: UserLogin):
     return APIResponse(
         success=True,
         message="Login successful",
-        data=result["data"]
+        data={
+            "user": result["user"],
+            "access_token": result["token"],
+            "token_type": "bearer"
+        }
     )
 
 @router.post("/", response_model=APIResponse, status_code=status.HTTP_201_CREATED)

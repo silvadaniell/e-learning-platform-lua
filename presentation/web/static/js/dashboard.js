@@ -36,7 +36,6 @@ function setupDashboardEventListeners() {
   }
 }
 
-// Load dashboard data
 async function loadDashboardData() {
   const currentUser = window.elearning?.getCurrentUser();
   if (!currentUser) return;

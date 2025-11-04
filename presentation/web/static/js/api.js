@@ -90,12 +90,10 @@ const apiClient = new APIClient();
 
 // User API methods
 const UserAPI = {
-    // Register new user
     async register(userData) {
         return apiClient.post('/users/register', userData);
     },
 
-    // Login user
     async login(email, password) {
         return apiClient.post('/users/login', { email, password });
     },
