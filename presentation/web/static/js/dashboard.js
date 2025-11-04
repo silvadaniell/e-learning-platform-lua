@@ -69,6 +69,8 @@ async function loadDashboardData() {
       return { success: false, data: {} };
     });
 
+    showRecommendationsLoading(true);
+
     const learningPathPromise = UserAPI.getLearningPath(currentUser.id).catch(err => {
       console.error('Learning path error:', err);
       return { success: false, data: {} };
@@ -126,8 +128,20 @@ async function loadDashboardData() {
 
     recommendationsPromise.then(recommendationsResponse => {
       loadingState.recommendations = true;
+      showRecommendationsLoading(false);
       if (recommendationsResponse && recommendationsResponse.success) {
         updateRecommendationsSection(recommendationsResponse.data);
+      } else {
+
+        const recommendationsGrid = document.getElementById('recommendationsGrid');
+        if (recommendationsGrid) {
+          recommendationsGrid.innerHTML = `
+            <div class="empty-state">
+              <i class="fas fa-lightbulb"></i>
+              <p>Continue estudando para receber recomendações personalizadas!</p>
+            </div>
+          `;
+        }
       }
       removeLoadingFromCard('recommendations');
       checkAllDataLoaded();
@@ -408,14 +422,38 @@ function updateDetailedAnalytics(analyticsData) {
     `;
 }
 
+function showRecommendationsLoading(show) {
+  const recommendationsSection = document.querySelector('.recommendations-section');
+  const recommendationsGrid = document.getElementById('recommendationsGrid');
+  
+  if (!recommendationsSection || !recommendationsGrid) return;
+
+  if (show) {
+    recommendationsSection.style.display = 'block';
+    recommendationsGrid.innerHTML = `
+      <div class="recommendations-loading">
+        <div class="loading-spinner">
+          <i class="fas fa-spinner fa-spin"></i>
+        </div>
+        <p>Carregando recomendações personalizadas...</p>
+      </div>
+    `;
+  } else {
+    recommendationsSection.style.display = 'none';
+  }
+}
+
 // Update recommendations section
 function updateRecommendationsSection(recommendationsData) {
   const recommendationsGrid = document.getElementById('recommendationsGrid');
+  const recommendationsSection = document.querySelector('.recommendations-section');
   const hasCompletedTrack = true;
+  
   if (!recommendationsGrid) return;
 
-  if (hasCompletedTrack) {
-    recommendationsGrid.parentElement.style.display = ""
+  // Show section
+  if (recommendationsSection) {
+    recommendationsSection.style.display = 'block';
   }
 
   if (!recommendationsData.structured_recommendations?.content_recommendations?.length) {
@@ -814,7 +852,6 @@ function updateCustomTrilhasSection(customTrilhasData) {
         </div>
     `;
   
-  // Final cleanup - ensure no loading states remain
   setTimeout(() => {
     const customTrilhasCard = customTrilhasContainer.closest('.dashboard-card');
     if (customTrilhasCard) {

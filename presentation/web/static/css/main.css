@@ -767,6 +767,41 @@ a:hover {
     gap: var(--spacing-6);
 }
 
+.recommendations-loading {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: var(--spacing-12);
+    text-align: center;
+}
+
+.recommendations-loading .loading-spinner {
+    margin-bottom: var(--spacing-4);
+}
+
+.recommendations-loading .loading-spinner i {
+    font-size: 2.5rem;
+    color: var(--primary-color);
+    animation: spin 1s linear infinite;
+}
+
+.recommendations-loading p {
+    color: var(--gray-600);
+    font-size: var(--font-size-base);
+    margin: 0;
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Chatbot Section */
 .chatbot-section {
     background: var(--gray-50);
