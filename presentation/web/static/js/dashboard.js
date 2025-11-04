@@ -3,6 +3,13 @@
 // Dashboard state
 let dashboardData = null;
 let chartsInitialized = false;
+let loadingState = {
+  profile: false,
+  analytics: false,
+  customTrilhas: false,
+  learningPath: false,
+  recommendations: false
+};
 
 // Initialize dashboard
 function initDashboard() {
@@ -40,81 +47,212 @@ async function loadDashboardData() {
   const currentUser = window.elearning?.getCurrentUser();
   if (!currentUser) return;
 
+
+  showDashboardLoading(true);
+  
+
+  initializeDashboardDefaults();
+
   try {
-    // Load user profile with progress
-    const profilePromise = UserAPI.getProfile(currentUser.id);
-
-    // Load analytics
-    const analyticsPromise = UserAPI.getAnalytics(currentUser.id, 30);
-
-    // Load recommendations
-    const recommendationsPromise = RecommendationsAPI.getAIRecommendations(currentUser.id, 2);
-
-    // Load learning path
-    const learningPathPromise = UserAPI.getLearningPath(currentUser.id);
-
-    // Load custom trilhas
-    const customTrilhasPromise = loadUserCustomTrilhas(currentUser.id);
-
-    // Wait for all data
-    const [profileResponse, analyticsResponse, recommendationsResponse, learningPathResponse, customTrilhasResponse] =
-      await Promise.all([
-        profilePromise.catch(err => { console.error('Profile error:', err); return { success: false, data: {} }; }),
-        analyticsPromise.catch(err => { console.error('Analytics error:', err); return { success: false, data: {} }; }),
-        recommendationsPromise.catch(err => { console.error('Recommendations error:', err); return { success: false, data: {} }; }),
-        learningPathPromise.catch(err => { console.error('Learning path error:', err); return { success: false, data: {} }; }),
-        customTrilhasPromise.catch(err => { console.error('Custom trilhas error:', err); return { success: false, data: {} }; })
-      ]);
-
-    console.log('Dashboard data loaded:', {
-      profile: profileResponse,
-      analytics: analyticsResponse,
-      recommendations: recommendationsResponse,
-      learningPath: learningPathResponse,
-      customTrilhas: customTrilhasResponse
+    const profilePromise = UserAPI.getProfile(currentUser.id).catch(err => {
+      console.error('Profile error:', err);
+      return { success: false, data: {} };
     });
 
-    // Update dashboard with loaded data
-    if (profileResponse && profileResponse.success) {
-      updateProfileSection(profileResponse.data);
-    }
+    const analyticsPromise = UserAPI.getAnalytics(currentUser.id, 30).catch(err => {
+      console.error('Analytics error:', err);
+      return { success: false, data: {} };
+    });
 
-    if (analyticsResponse && analyticsResponse.success) {
-      updateAnalyticsSection(analyticsResponse.data);
-    } else {
-      console.warn('Analytics response not successful:', analyticsResponse);
-    }
+    const recommendationsPromise = RecommendationsAPI.getAIRecommendations(currentUser.id, 2).catch(err => {
+      console.error('Recommendations error:', err);
+      return { success: false, data: {} };
+    });
 
-    if (recommendationsResponse && recommendationsResponse.success) {
-      updateRecommendationsSection(recommendationsResponse.data);
-    }
+    const learningPathPromise = UserAPI.getLearningPath(currentUser.id).catch(err => {
+      console.error('Learning path error:', err);
+      return { success: false, data: {} };
+    });
 
-    if (learningPathResponse && learningPathResponse.success) {
-      updateLearningPathSection(learningPathResponse.data);
-    }
+    const customTrilhasPromise = loadUserCustomTrilhas(currentUser.id).catch(err => {
+      console.error('Custom trilhas error:', err);
+      return { success: false, data: {} };
+    });
 
-    if (customTrilhasResponse && customTrilhasResponse.success) {
-      updateCustomTrilhasSection(customTrilhasResponse.data);
-      // Update created trilhas count
-      updateStatCard('createdTrilhas', customTrilhasResponse.data?.trilhas?.length || 0);
-      // Update recent activity
-      updateRecentActivity(customTrilhasResponse.data?.trilhas || []);
-    } else {
-      updateStatCard('createdTrilhas', 0);
-    }
+
+    profilePromise.then(profileResponse => {
+      loadingState.profile = true;
+      if (profileResponse && profileResponse.success) {
+        updateProfileSection(profileResponse.data);
+      }
+      removeLoadingFromCard('profile');
+      checkAllDataLoaded();
+    });
+
+    analyticsPromise.then(analyticsResponse => {
+      loadingState.analytics = true;
+      if (analyticsResponse && analyticsResponse.success) {
+        updateAnalyticsSection(analyticsResponse.data);
+      } else {
+        console.warn('Analytics response not successful:', analyticsResponse);
+      }
+      removeLoadingFromCard('analytics');
+      checkAllDataLoaded();
+    });
+
+    customTrilhasPromise.then(customTrilhasResponse => {
+      loadingState.customTrilhas = true;
+      if (customTrilhasResponse && customTrilhasResponse.success) {
+        updateCustomTrilhasSection(customTrilhasResponse.data);
+        updateStatCard('createdTrilhas', customTrilhasResponse.data?.trilhas?.length || 0);
+        updateRecentActivity(customTrilhasResponse.data?.trilhas || []);
+      } else {
+        updateStatCard('createdTrilhas', 0);
+      }
+
+      removeLoadingFromCard('customTrilhas');
+      checkAllDataLoaded();
+    });
+
+    learningPathPromise.then(learningPathResponse => {
+      loadingState.learningPath = true;
+      if (learningPathResponse && learningPathResponse.success) {
+        updateLearningPathSection(learningPathResponse.data);
+      }
+      removeLoadingFromCard('learningPath');
+      checkAllDataLoaded();
+    });
+
+
+    recommendationsPromise.then(recommendationsResponse => {
+      loadingState.recommendations = true;
+      if (recommendationsResponse && recommendationsResponse.success) {
+        updateRecommendationsSection(recommendationsResponse.data);
+      }
+      removeLoadingFromCard('recommendations');
+      checkAllDataLoaded();
+    });
+
+    // Wait for all promises to complete (for error handling and data storage)
+    const [profileResponse, analyticsResponse, recommendationsResponse, learningPathResponse, customTrilhasResponse] =
+      await Promise.allSettled([
+        profilePromise,
+        analyticsPromise,
+        recommendationsPromise,
+        learningPathPromise,
+        customTrilhasPromise
+      ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : { success: false, data: {} }));
 
     // Store dashboard data
     dashboardData = {
-      profile: profileResponse.data,
-      analytics: analyticsResponse.data,
-      recommendations: recommendationsResponse.data,
-      learningPath: learningPathResponse.data,
-      customTrilhas: customTrilhasResponse.data
+      profile: profileResponse?.data || {},
+      analytics: analyticsResponse?.data || {},
+      recommendations: recommendationsResponse?.data || {},
+      learningPath: learningPathResponse?.data || {},
+      customTrilhas: customTrilhasResponse?.data || {}
     };
+
+    // Final check to ensure loading is removed (in case all promises resolved before callbacks)
+    setTimeout(() => {
+      checkAllDataLoaded();
+    }, 100);
 
   } catch (error) {
     console.error('Error loading dashboard data:', error);
     showDashboardError('Erro ao carregar dados do dashboard');
+    showDashboardLoading(false);
+  }
+}
+
+// Initialize dashboard with default values for immediate display
+function initializeDashboardDefaults() {
+  // Reset loading state
+  loadingState = {
+    profile: false,
+    analytics: false,
+    customTrilhas: false,
+    learningPath: false,
+    recommendations: false
+  };
+  
+  // Set default values immediately so user sees something
+  updateStatCard('overallProgress', '0%');
+  updateStatCard('studyTime', '0h');
+  updateStatCard('learningStreak', 0);
+  updateStatCard('createdTrilhas', 0);
+  updateProgressCircle(0);
+}
+
+// Remove loading state from specific card
+function removeLoadingFromCard(cardType) {
+  const dashboardGrid = document.querySelector('.dashboard-grid');
+  if (!dashboardGrid) return;
+
+  // Map card types to specific cards
+  if (cardType === 'analytics') {
+    // Remove loading from stats cards (progress, study time, streak, created trilhas)
+    const progressCard = dashboardGrid.querySelector('.dashboard-card.gradient-card');
+    const studyTimeCard = document.getElementById('studyTime')?.closest('.dashboard-card');
+    const streakCard = document.getElementById('learningStreak')?.closest('.dashboard-card');
+    const createdTrilhasCard = document.getElementById('createdTrilhas')?.closest('.dashboard-card');
+    
+    [progressCard, studyTimeCard, streakCard, createdTrilhasCard].forEach(card => {
+      if (card) {
+        card.classList.remove('loading');
+        const statValues = card.querySelectorAll('.stat-value, .progress-value');
+        statValues.forEach(el => {
+          el.classList.remove('loading-pulse');
+          el.style.opacity = '1'; // Ensure visible
+        });
+      }
+    });
+  } else if (cardType === 'customTrilhas') {
+    // Remove loading from custom trilhas card (full-width card)
+    const customTrilhasCard = dashboardGrid.querySelector('.dashboard-card.full-width-card');
+    if (customTrilhasCard) {
+      customTrilhasCard.classList.remove('loading');
+      const statValues = customTrilhasCard.querySelectorAll('.stat-value, .stat-number, .stat-label');
+      statValues.forEach(el => {
+        el.classList.remove('loading-pulse');
+        el.style.opacity = '1'; // Ensure visible
+      });
+    }
+    // Also remove from created trilhas stat card
+    const createdTrilhasCard = document.getElementById('createdTrilhas')?.closest('.dashboard-card');
+    if (createdTrilhasCard) {
+      createdTrilhasCard.classList.remove('loading');
+      const statValue = document.getElementById('createdTrilhas');
+      if (statValue) {
+        statValue.classList.remove('loading-pulse');
+        statValue.style.opacity = '1';
+      }
+    }
+  } else if (cardType === 'profile') {
+    // Remove loading from profile-related cards if any
+    const profileCards = dashboardGrid.querySelectorAll('.dashboard-card');
+    profileCards.forEach(card => {
+      card.classList.remove('loading');
+    });
+  }
+}
+
+// Check if all data has loaded and remove remaining loading states
+function checkAllDataLoaded() {
+  const allLoaded = Object.values(loadingState).every(loaded => loaded === true);
+  if (allLoaded) {
+    // Remove all loading states
+    const dashboardGrid = document.querySelector('.dashboard-grid');
+    if (dashboardGrid) {
+      const cards = dashboardGrid.querySelectorAll('.dashboard-card');
+      cards.forEach(card => {
+        card.classList.remove('loading');
+        const statValues = card.querySelectorAll('.stat-value, .progress-value, .stat-number');
+        statValues.forEach(el => el.classList.remove('loading-pulse'));
+      });
+    }
+    
+    // Also hide any remaining loading indicators
+    showDashboardLoading(false);
   }
 }
 
@@ -147,6 +285,9 @@ function updateProfileSection(profileData) {
 function updateAnalyticsSection(analyticsData) {
   console.log('Updating analytics section with data:', analyticsData);
 
+  // Remove loading states before updating
+  removeLoadingFromCard('analytics');
+
   // Update main stats
   updateStatCard('overallProgress', `${analyticsData.completion_rate || 0}%`);
   updateStatCard('studyTime', `${analyticsData.total_study_time_hours || 0}h`);
@@ -165,7 +306,14 @@ function updateAnalyticsSection(analyticsData) {
 function updateStatCard(elementId, value) {
   const element = document.getElementById(elementId);
   if (element) {
+    // Remove loading animation when updating
+    element.classList.remove('loading-pulse');
     element.textContent = value;
+    // Add a subtle fade-in effect
+    element.style.opacity = '0';
+    setTimeout(() => {
+      element.style.opacity = '1';
+    }, 10);
   }
 }
 
@@ -175,6 +323,10 @@ function updateProgressCircle(percentage) {
   const progressValue = document.querySelector('.progress-value');
 
   if (progressCircle && progressValue) {
+    // Remove loading animation
+    progressValue.classList.remove('loading-pulse');
+    progressCircle.classList.remove('loading');
+    
     // Update text
     progressValue.textContent = `${percentage}%`;
 
@@ -400,16 +552,49 @@ function getConfidenceClass(confidence) {
 
 // Show dashboard loading
 function showDashboardLoading(show) {
+  const dashboardGrid = document.querySelector('.dashboard-grid');
   const loadingElements = document.querySelectorAll('.dashboard-loading');
-  const contentElements = document.querySelectorAll('.dashboard-content');
+  const statCards = document.querySelectorAll('.dashboard-card .stat-value, .dashboard-card .progress-value, .dashboard-card .stat-number');
+
 
   loadingElements.forEach(el => {
     el.style.display = show ? 'block' : 'none';
   });
 
-  contentElements.forEach(el => {
-    el.style.opacity = show ? '0.5' : '1';
-  });
+  if (!show) {
+    if (dashboardGrid) {
+      const cards = dashboardGrid.querySelectorAll('.dashboard-card');
+      cards.forEach(card => {
+        card.classList.remove('loading');
+
+        const allElements = card.querySelectorAll('.stat-value, .progress-value, .stat-number, .stat-label');
+        allElements.forEach(el => {
+          el.classList.remove('loading-pulse');
+          el.style.opacity = '1';
+          el.style.animation = 'none';
+        });
+        card.style.opacity = '1';
+      });
+    }
+    
+    statCards.forEach(el => {
+      el.classList.remove('loading-pulse');
+      el.style.opacity = '1';
+      el.style.animation = 'none';
+    });
+  } else {
+
+    if (dashboardGrid) {
+      const cards = dashboardGrid.querySelectorAll('.dashboard-card');
+      cards.forEach(card => {
+        card.classList.add('loading');
+      });
+    }
+
+    statCards.forEach(el => {
+      el.classList.add('loading-pulse');
+    });
+  }
 }
 
 // Show dashboard error
@@ -527,6 +712,9 @@ function updateRecentActivity(trilhas) {
 
 // Update custom trilhas section
 function updateCustomTrilhasSection(customTrilhasData) {
+  // Remove loading state before updating
+  removeLoadingFromCard('customTrilhas');
+  
   // Add custom trilhas card to dashboard if it doesn't exist
   let customTrilhasContainer = document.getElementById('customTrilhasContainer');
 
@@ -625,6 +813,21 @@ function updateCustomTrilhasSection(customTrilhasData) {
             </button>
         </div>
     `;
+  
+  // Final cleanup - ensure no loading states remain
+  setTimeout(() => {
+    const customTrilhasCard = customTrilhasContainer.closest('.dashboard-card');
+    if (customTrilhasCard) {
+      customTrilhasCard.classList.remove('loading');
+      const allElements = customTrilhasCard.querySelectorAll('.stat-number, .stat-label, .stat-value');
+      allElements.forEach(el => {
+        el.classList.remove('loading-pulse');
+        el.style.opacity = '1';
+        el.style.animation = 'none';
+      });
+      customTrilhasCard.style.opacity = '1';
+    }
+  }, 100);
 }
 
 // Export dashboard data

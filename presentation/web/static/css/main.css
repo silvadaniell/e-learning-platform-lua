@@ -437,6 +437,65 @@ a:hover {
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-md);
     border: 1px solid var(--gray-200);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.dashboard-card.loading {
+    opacity: 0.7;
+    position: relative;
+}
+
+.dashboard-card.loading::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+    animation: shimmer 1.5s infinite;
+    border-radius: var(--radius-xl);
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.stat-value.loading-pulse,
+.progress-value.loading-pulse {
+    animation: pulse 1.5s ease-in-out infinite;
+    opacity: 0.6;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+.stat-value,
+.progress-value,
+.stat-number {
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.dashboard-card:not(.loading) {
+    opacity: 1 !important;
+}
+
+.dashboard-card:not(.loading) .stat-value,
+.dashboard-card:not(.loading) .progress-value,
+.dashboard-card:not(.loading) .stat-number {
+    opacity: 1 !important;
+    animation: none !important;
 }
 
 .card-header {
