@@ -58,6 +58,7 @@ class GeminiClient:
         
         try:
             response = await asyncio.to_thread(self.model.generate_content, prompt)
+            print("Response: ", response.text)
             return response.text
         except Exception as e:
             print(f"Error generating recommendations: {e}")
@@ -171,33 +172,82 @@ Não inclua texto adicional, apenas o JSON válido com {count} questões.
             return {"analysis": "Content analysis unavailable", "status": "error"}
     
     def _build_recommendation_prompt(self, user_profile: Dict, learning_history: List[Dict]) -> str:
-        """Build prompt for learning recommendations."""
         profile_text = f"""
-        User Profile:
-        - Name: {user_profile.get('nome', 'Unknown')}
-        - Learning Profile: {user_profile.get('perfil_aprend', 'Not specified')}
-        - Email: {user_profile.get('email', 'Not provided')}
+        Perfil do Usuário:
+        - Nome: {user_profile.get('nome', 'Desconhecido')}
+        - Perfil de Aprendizado: {user_profile.get('perfil_aprend', 'Não especificado')}
+        - Email: {user_profile.get('email', 'Não fornecido')}
+        - Trilhas Inscritas: {user_profile.get('enrolled_trilhas_count', 0)}
         """
         
-        history_text = "Learning History:\n"
-        for item in learning_history[-5:]:  # Last 5 items
-            history_text += f"- {item.get('titulo', 'Unknown')}: Progress {item.get('progresso', 0)}%\n"
+        history_text = "Histórico de Aprendizado:\n"
+        for item in learning_history[-5:]:
+            history_text += f"- {item.get('titulo', 'Desconhecido')}: Progresso {item.get('progresso', 0)}%\n"
+        
+        analytics = user_profile.get('learning_analytics', {})
+        analytics_text = f"""
+        Analytics de Aprendizado:
+        - Taxa de Conclusão: {analytics.get('completion_rate', 0)}%
+        - Sequência de Dias: {analytics.get('learning_streak', 0)} dias
+        - Tempo Médio de Estudo: {analytics.get('daily_average_study_time', 0)} horas/dia
+        """
         
         prompt = f"""
-        You are an AI learning advisor for an e-learning platform. Based on the user's profile and learning history, 
-        provide personalized learning recommendations.
+        Você é um assistente de aprendizado IA para uma plataforma de e-learning. Com base no perfil e histórico do usuário,
+        recomende materiais de aprendizado EXTERNOS (recursos gratuitos, vídeos do YouTube, cursos online, artigos, etc.)
+        que o usuário possa procurar e estudar.
         
         {profile_text}
         
         {history_text}
         
-        Please provide:
-        1. 3-5 specific course recommendations
-        2. Learning path suggestions
-        3. Study schedule recommendations
-        4. Areas for improvement
+        {analytics_text}
         
-        Keep recommendations practical and encouraging. Focus on the user's learning style and progress.
+        IMPORTANTE: Retorne um objeto JSON com a seguinte estrutura:
+        {{
+            "material_recommendations": [
+                {{
+                    "title": "Título/Nome do material recomendado",
+                    "type": "youtube|course|article|documentation|video|ebook|tutorial",
+                    "description": "Breve descrição do que este material cobre",
+                    "reason": "Por que isso é recomendado para este usuário baseado no perfil e histórico",
+                    "url": "APENAS se você tiver uma URL específica e verificada que existe. Caso contrário, deixe vazio ou omita este campo.",
+                    "search_terms": "OBRIGATÓRIO: Termos de busca específicos para encontrar este material (ex: 'tutorial Python programação', 'documentação React', 'curso JavaScript gratuito'). Sempre forneça este campo.",
+                    "difficulty": "iniciante|intermediario|avancado",
+                    "estimated_time": "Tempo estimado para completar (ex: '2 horas', '1 curso completo', '30 minutos')",
+                    "free": true,
+                    "confidence": 0.85
+                }}
+            ],
+            "learning_path_suggestions": "Texto breve sobre sugestões de caminhos de aprendizado",
+            "study_schedule": "Texto breve sobre recomendações de cronograma de estudos",
+            "improvement_areas": "Texto breve sobre áreas de melhoria",
+            "general_insights": "Insights gerais personalizados sobre o aprendizado do usuário"
+        }}
+        
+        Forneça 4-6 recomendações específicas de materiais externos baseadas em:
+        1. Nível atual de aprendizado do usuário ({user_profile.get('perfil_aprend', 'beginner')})
+        2. Seu histórico de aprendizado e progresso
+        3. Seus padrões de conclusão e hábitos de estudo
+        4. Seus analytics de aprendizado
+        
+        Foque em:
+        - Recursos gratuitos disponíveis na internet (YouTube, cursos gratuitos, artigos, documentação)
+        - Materiais que complementam o que eles já estão aprendendo
+        - Recursos apropriados para seu nível de habilidade
+        - Mix de diferentes tipos: vídeos, cursos, artigos, tutoriais
+        
+        REGRAS IMPORTANTES:
+        - SEMPRE forneça o campo "search_terms" com termos específicos e pesquisáveis
+        - Inclua o campo "url" apenas se tiver 100% de certeza de que a URL existe e é acessível
+        - Se não tiver certeza sobre uma URL, deixe vazio e confie em search_terms
+        - Para YouTube: Forneça termos de busca como "tutorial Python para iniciantes", "curso React", etc.
+        - Para cursos: Forneça termos de busca como "curso JavaScript gratuito", "curso programação Python", etc.
+        - Para artigos/documentação: Forneça termos de busca como "documentação oficial React", "documentação Python", etc.
+        - Torne os termos de busca específicos e acionáveis (2-5 palavras, tópico claro)
+        
+        Faça recomendações específicas e personalizadas. Prefira search_terms em vez de URLs para garantir que os usuários sempre possam encontrar o material.
+        Retorne APENAS JSON válido, sem texto adicional.
         """
         
         return prompt

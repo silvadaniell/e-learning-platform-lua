@@ -64,8 +64,8 @@ async function loadDashboardData() {
       return { success: false, data: {} };
     });
 
-    const recommendationsPromise = RecommendationsAPI.getAIRecommendations(currentUser.id, 2).catch(err => {
-      console.error('Recommendations error:', err);
+    const recommendationsPromise = loadRecommendationsWithCache(currentUser.id).catch(err => {
+      console.error('Erro ao carregar recomendações:', err);
       return { success: false, data: {} };
     });
 
@@ -95,8 +95,12 @@ async function loadDashboardData() {
       loadingState.analytics = true;
       if (analyticsResponse && analyticsResponse.success) {
         updateAnalyticsSection(analyticsResponse.data);
+        const currentUser = window.elearning?.getCurrentUser();
+        if (currentUser) {
+          checkAndInvalidateRecommendationsCache(currentUser.id, analyticsResponse.data);
+        }
       } else {
-        console.warn('Analytics response not successful:', analyticsResponse);
+        console.warn('Resposta de analytics não foi bem-sucedida:', analyticsResponse);
       }
       removeLoadingFromCard('analytics');
       checkAllDataLoaded();
@@ -108,6 +112,10 @@ async function loadDashboardData() {
         updateCustomTrilhasSection(customTrilhasResponse.data);
         updateStatCard('createdTrilhas', customTrilhasResponse.data?.trilhas?.length || 0);
         updateRecentActivity(customTrilhasResponse.data?.trilhas || []);
+        const currentUser = window.elearning?.getCurrentUser();
+        if (currentUser) {
+          checkAndInvalidateRecommendationsCache(currentUser.id, null, customTrilhasResponse.data);
+        }
       } else {
         updateStatCard('createdTrilhas', 0);
       }
@@ -147,7 +155,6 @@ async function loadDashboardData() {
       checkAllDataLoaded();
     });
 
-    // Wait for all promises to complete (for error handling and data storage)
     const [profileResponse, analyticsResponse, recommendationsResponse, learningPathResponse, customTrilhasResponse] =
       await Promise.allSettled([
         profilePromise,
@@ -157,7 +164,6 @@ async function loadDashboardData() {
         customTrilhasPromise
       ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : { success: false, data: {} }));
 
-    // Store dashboard data
     dashboardData = {
       profile: profileResponse?.data || {},
       analytics: analyticsResponse?.data || {},
@@ -166,7 +172,6 @@ async function loadDashboardData() {
       customTrilhas: customTrilhasResponse?.data || {}
     };
 
-    // Final check to ensure loading is removed (in case all promises resolved before callbacks)
     setTimeout(() => {
       checkAllDataLoaded();
     }, 100);
@@ -435,7 +440,7 @@ function showRecommendationsLoading(show) {
         <div class="loading-spinner">
           <i class="fas fa-spinner fa-spin"></i>
         </div>
-        <p>Carregando recomendações personalizadas...</p>
+        <p>Carregando materiais recomendados...</p>
       </div>
     `;
   } else {
@@ -460,34 +465,69 @@ function updateRecommendationsSection(recommendationsData) {
     recommendationsGrid.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-lightbulb"></i>
-                <p>Continue estudando para receber recomendações personalizadas!</p>
+                <p>Continue estudando para receber recomendações de materiais!</p>
             </div>
         `;
     return;
   }
 
   const recommendations = recommendationsData.structured_recommendations.content_recommendations;
+  
+  // Helper function to get icon for material type
+  function getMaterialIcon(type) {
+    const icons = {
+      'youtube': 'fa-youtube',
+      'course': 'fa-graduation-cap',
+      'article': 'fa-file-alt',
+      'documentation': 'fa-book',
+      'video': 'fa-video',
+      'ebook': 'fa-book-open',
+      'tutorial': 'fa-chalkboard-teacher',
+      'material': 'fa-link'
+    };
+    return icons[type.toLowerCase()] || 'fa-link';
+  }
+  
+  // Helper function to get type label
+  function getMaterialTypeLabel(type) {
+    const labels = {
+      'youtube': 'YouTube',
+      'course': 'Curso Online',
+      'article': 'Artigo',
+      'documentation': 'Documentação',
+      'video': 'Vídeo',
+      'ebook': 'E-book',
+      'tutorial': 'Tutorial',
+      'material': 'Material'
+    };
+    return labels[type.toLowerCase()] || 'Material';
+  }
+  
   recommendationsGrid.innerHTML = recommendations.map(rec => `
-        <div class="recommendation-card" onclick="handleRecommendationClick(${rec.id}, '${rec.type}')">
-            <div class="recommendation-header">
-                <div class="recommendation-icon">
-                    <i class="fas fa-${getRecommendationIcon(rec.type)}"></i>
+        <div class="material-recommendation-card">
+            <div class="material-header">
+                <div class="material-icon">
+                    <i class="fas ${getMaterialIcon(rec.type)}"></i>
                 </div>
-                <h4 class="recommendation-title">${rec.titulo}</h4>
+                <div class="material-type-badge">${getMaterialTypeLabel(rec.type)}</div>
             </div>
-            <p class="recommendation-description">${rec.reason}</p>
-            <div class="recommendation-meta">
-                <span class="difficulty-badge difficulty-${rec.dificuldade}">${getDifficultyLabel(rec.dificuldade)}</span>
-                <span class="confidence-badge ${getConfidenceClass(rec.confidence)}">
-                    ${Math.round(rec.confidence * 100)}% confiança
+            <h4 class="material-title">${rec.title || rec.titulo || 'Material Recomendado'}</h4>
+            <p class="material-description">${rec.description || rec.reason || ''}</p>
+            <div class="material-meta">
+                <span class="difficulty-badge difficulty-${rec.difficulty || rec.dificuldade || 'intermediario'}">
+                    ${getDifficultyLabel(rec.difficulty || rec.dificuldade || 'intermediario')}
                 </span>
+                ${rec.estimated_time ? `<span class="time-badge"><i class="fas fa-clock"></i> ${rec.estimated_time}</span>` : ''}
+                ${rec.free ? '<span class="free-badge"><i class="fas fa-gift"></i> Gratuito</span>' : ''}
             </div>
-            <!-- adicionando o botão para nova trilha -->
-          <div style="display: flex; justify-content: flex-begin; margin-top: 8px;">  
-            <button class="btn btn-small btn-outline" onclick="window.trilhasPersonalizadas?.startTrilha(${rec.id})">
-                <i class="fas fa-play"></i> Iniciar
-            </button>
-          </div>
+            <div class="material-reason">
+                <i class="fas fa-info-circle"></i>
+                <span>${rec.reason || 'Recomendado com base no seu perfil'}</span>
+            </div>
+            <a href="${rec.url}" target="_blank" rel="noopener noreferrer" class="material-link-btn">
+                <i class="fas fa-external-link-alt"></i>
+                ${rec.type === 'youtube' ? 'Assistir no YouTube' : rec.type === 'course' ? 'Acessar Curso' : 'Acessar Material'}
+            </a>
         </div>
     `).join('');
 }
@@ -668,14 +708,131 @@ async function loadAnalytics(days) {
   }
 }
 
-// Load user custom trilhas
+async function loadRecommendationsWithCache(userId) {
+  const CACHE_KEY = `recommendations_cache_${userId}`;
+  const CACHE_VERSION_KEY = `recommendations_version_${userId}`;
+  const CACHE_DURATION = 24 * 60 * 60 * 1000;
+
+  try {
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    const cachedVersion = localStorage.getItem(CACHE_VERSION_KEY);
+    const cachedTimestamp = localStorage.getItem(`${CACHE_KEY}_timestamp`);
+    
+    if (cachedData && cachedVersion && cachedTimestamp) {
+      const cacheAge = Date.now() - parseInt(cachedTimestamp);
+      
+      if (cacheAge < CACHE_DURATION) {
+        const parsedCache = JSON.parse(cachedData);
+        const parsedVersion = JSON.parse(cachedVersion);
+        
+        const currentVersion = await getRecommendationsCacheVersion(userId);
+        
+        if (currentVersion.trilhas_count === parsedVersion.trilhas_count &&
+            currentVersion.completion_rate === parsedVersion.completion_rate) {
+          console.log('Usando recomendações do cache');
+          return parsedCache;
+        } else {
+          console.log('Cache inválido - dados do usuário mudaram');
+        }
+      } else {
+        console.log('Cache expirado');
+      }
+    }
+
+    console.log('Carregando novas recomendações da API');
+    const response = await RecommendationsAPI.getAIRecommendations(userId, 2);
+    
+    if (response && response.success) {
+      const currentVersion = await getRecommendationsCacheVersion(userId);
+      
+      localStorage.setItem(CACHE_KEY, JSON.stringify(response));
+      localStorage.setItem(CACHE_VERSION_KEY, JSON.stringify(currentVersion));
+      localStorage.setItem(`${CACHE_KEY}_timestamp`, Date.now().toString());
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Erro ao carregar recomendações:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function getRecommendationsCacheVersion(userId) {
+  try {
+    const analyticsResponse = await UserAPI.getAnalytics(userId, 30);
+    const customTrilhasResponse = await loadUserCustomTrilhas(userId);
+    
+    const completion_rate = analyticsResponse?.data?.completion_rate || 0;
+    const trilhas_count = customTrilhasResponse?.data?.trilhas?.length || 0;
+    
+    return {
+      trilhas_count: trilhas_count,
+      completion_rate: Math.round(completion_rate),
+      timestamp: Date.now()
+    };
+  } catch (error) {
+    console.error('Erro ao obter versão do cache:', error);
+    return {
+      trilhas_count: 0,
+      completion_rate: 0,
+      timestamp: Date.now()
+    };
+  }
+}
+
+function invalidateRecommendationsCache(userId) {
+  const CACHE_KEY = `recommendations_cache_${userId}`;
+  const CACHE_VERSION_KEY = `recommendations_version_${userId}`;
+  const CACHE_TIMESTAMP_KEY = `${CACHE_KEY}_timestamp`;
+  
+  localStorage.removeItem(CACHE_KEY);
+  localStorage.removeItem(CACHE_VERSION_KEY);
+  localStorage.removeItem(CACHE_TIMESTAMP_KEY);
+  
+  console.log('Cache de recomendações invalidado');
+}
+
+async function checkAndInvalidateRecommendationsCache(userId, analyticsData = null, customTrilhasData = null) {
+  const CACHE_VERSION_KEY = `recommendations_version_${userId}`;
+  const cachedVersion = localStorage.getItem(CACHE_VERSION_KEY);
+  
+  if (!cachedVersion) return;
+  
+  try {
+    const parsedVersion = JSON.parse(cachedVersion);
+    let shouldInvalidate = false;
+    
+    if (analyticsData) {
+      const currentCompletionRate = Math.round(analyticsData.completion_rate || 0);
+      if (currentCompletionRate !== parsedVersion.completion_rate) {
+        console.log(`Taxa de conclusão mudou: ${parsedVersion.completion_rate}% -> ${currentCompletionRate}%`);
+        shouldInvalidate = true;
+      }
+    }
+    
+    if (customTrilhasData) {
+      const currentTrilhasCount = customTrilhasData?.trilhas?.length || 0;
+      if (currentTrilhasCount !== parsedVersion.trilhas_count) {
+        console.log(`Quantidade de trilhas mudou: ${parsedVersion.trilhas_count} -> ${currentTrilhasCount}`);
+        shouldInvalidate = true;
+      }
+    }
+    
+    if (shouldInvalidate) {
+      invalidateRecommendationsCache(userId);
+    }
+  } catch (error) {
+    console.error('Erro ao verificar cache:', error);
+  }
+}
+
 async function loadUserCustomTrilhas(userId) {
   try {
     const response = await fetch(`/api/v1/trilhas-personalizadas/user/${userId}/created`);
     const result = await response.json();
     return result;
   } catch (error) {
-    console.error('Error loading custom trilhas:', error);
+    console.error('Erro ao carregar trilhas personalizadas:', error);
     return { success: false, error: error.message };
   }
 }
