@@ -485,8 +485,15 @@ async function displayUserTrilhas(trilhas) {
             } else if (progressResult.success) {
                 isCompleted = false;
             }
+            
+            if (trilha.completion_rate !== undefined && !isCompleted) {
+                isCompleted = trilha.completion_rate >= 50;
+            }
         } catch (error) {
             console.error(`Erro ao buscar progresso da trilha ${trilha.id}:`, error);
+            if (trilha.completion_rate !== undefined) {
+                isCompleted = trilha.completion_rate >= 50;
+            }
         }
         
         return { ...trilha, averageGrade, hasStarted, isCompleted };
@@ -494,10 +501,7 @@ async function displayUserTrilhas(trilhas) {
 
     trilhasGrid.innerHTML = trilhasWithProgress.map(trilha => {
         const englishDifficulty = difficultyMap[trilha.dificuldade] || trilha.dificuldade;
-        const buttonText = trilha.isCompleted ? 'Ver Resultado' : 'Iniciar';
-        const buttonIcon = trilha.isCompleted ? 'fa-chart-line' : 'fa-play';
-        const buttonAction = trilha.isCompleted ? `showTrilhaFinalResults(${trilha.id})` : `startTrilha(${trilha.id})`;
-        const showPercentage = trilha.isCompleted && trilha.averageGrade > 0;
+        const showPercentage = trilha.averageGrade > 0;
         
         return `
         <div class="trilha-card user-trilha" data-trilha-id="${trilha.id}" data-level="${englishDifficulty}">
@@ -529,10 +533,9 @@ async function displayUserTrilhas(trilhas) {
                     ` : ''}
                 </div>
                 <div class="trilha-actions" style="display: flex; align-items: center; gap: 1rem;">
-                    ${showPercentage ? `<span style="font-weight: 600; color: #667eea; font-size: 1.1rem;">${Math.round(trilha.averageGrade)}%</span>` : ''}
-                    <button class="btn btn-primary" onclick="${buttonAction}">
-                        <i class="fas ${buttonIcon}"></i>
-                        ${buttonText}
+                    <button class="btn btn-primary" onclick="startTrilha(${trilha.id})">
+                        <i class="fas fa-play"></i>
+                        Iniciar
                     </button>
                     <button class="btn btn-outline" onclick="viewTrilhaDetails(${trilha.id})">
                         <i class="fas fa-info"></i>
@@ -1317,9 +1320,6 @@ async function startModuleFromModal(button, trilhaId, nextModuleData) {
 
         button.innerHTML = '<div class="btn-spinner"></div> Preparando Quiz...';
         
-        showLoadingInModal();
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
         await startModuleQuizWithModalControl(trilhaId, module);
     } catch (error) {
         console.error('Erro ao iniciar módulo:', error);
@@ -1359,13 +1359,7 @@ async function startFirstModuleWithLoadingInModal(button, trilhaId) {
             // Atualizar botão para mostrar progresso
             button.innerHTML = '<div class="btn-spinner"></div> Preparando Quiz...';
 
-            // Mostrar loading overlay no modal
-            showLoadingInModal();
-
-            // Aguardar um pouco para mostrar o feedback visual
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Iniciar quiz do primeiro módulo SEM fechar o modal ainda
+            // Iniciar quiz do primeiro módulo
             await startModuleQuizWithModalControl(trilhaId, firstModule);
         } else {
             throw new Error('Nenhum módulo encontrado na trilha');
@@ -1456,8 +1450,15 @@ async function startFirstModule(trilhaId) {
 async function startModuleQuizWithModalControl(trilhaId, module) {
     console.log('Starting quiz for module with modal control:', module);
 
+    // Fechar modal anterior imediatamente
+    document.querySelector('.modal-overlay')?.remove();
+
+    // Mostrar quiz imediatamente com questões mock (carregamento rápido)
+    const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
+    showQuizModal(trilhaId, module, mockQuestions);
+
+    // Carregar questões reais em background
     try {
-        // Gerar questões primeiro
         const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
             method: 'POST',
             headers: {
@@ -1472,33 +1473,18 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
 
         const questionsResult = await questionsResponse.json();
 
-        let questions;
         if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
-            // Usar questões geradas pela LLM
-            questions = questionsResult.data.questions;
-        } else {
-            // Fallback: usar questões mock
-            questions = generateMockQuestions(module.titulo, module.questions_count || 10);
+            // Substituir questões mock pelas reais se o modal ainda estiver aberto
+            const quizModal = document.querySelector('.quiz-modal-overlay');
+            if (quizModal && !quizModal.querySelector('.quiz-results')) {
+                // Remover modal atual e recriar com questões reais
+                quizModal.remove();
+                showQuizModal(trilhaId, module, questionsResult.data.questions);
+            }
         }
-
-        // AGORA sim fechar o modal
-        document.querySelector('.modal-overlay')?.remove();
-
-        // Aguardar um pouco para garantir que o modal foi removido
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Mostrar o quiz
-        showQuizModal(trilhaId, module, questions);
-
     } catch (error) {
         console.error('Error generating questions:', error);
-
-        // Em caso de erro, fechar modal e usar questões mock
-        document.querySelector('.modal-overlay')?.remove();
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
-        showQuizModal(trilhaId, module, mockQuestions);
+        // Manter questões mock em caso de erro
     }
 }
 

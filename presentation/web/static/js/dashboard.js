@@ -976,15 +976,6 @@ function updateCustomTrilhasSection(customTrilhasData) {
                             </span>
                         </div>
                     </div>
-                    <div class="trilha-stats">
-                        <span class="trilha-percentage" style="font-weight: 600; color: #667eea; font-size: 0.9rem; display: none;"></span>
-                    </div>
-                    <div class="trilha-actions" style="display: flex; align-items: center; gap: 0.5rem;">
-                        <button class="btn btn-small btn-outline" onclick="window.trilhasPersonalizadas?.startTrilha(${trilha.id})">
-                            <i class="fas fa-info"></i>
-                            Abrir
-                        </button>
-                    </div>
                 </div>
             `).join('')}
         </div>
@@ -1048,25 +1039,6 @@ async function updateCustomTrilhasButtons(trilhas) {
             } else {
               button.innerHTML = `<i class="fas fa-play"></i> Iniciar`;
               button.setAttribute('onclick', `window.trilhasPersonalizadas?.startTrilha(${trilha.id})`);
-            }
-          }
-          
-          if (statsDiv) {
-            if (averageGrade > 0) {
-              let percentageSpan = statsDiv.querySelector('.trilha-percentage');
-              if (!percentageSpan) {
-                percentageSpan = document.createElement('span');
-                percentageSpan.className = 'trilha-percentage';
-                percentageSpan.style.cssText = 'font-weight: 600; color: #667eea; font-size: 0.9rem;';
-                statsDiv.appendChild(percentageSpan);
-              }
-              percentageSpan.textContent = `${Math.round(averageGrade)}% de acerto`;
-              percentageSpan.style.display = 'inline';
-            } else {
-              const percentageSpan = statsDiv.querySelector('.trilha-percentage');
-              if (percentageSpan) {
-                percentageSpan.style.display = 'none';
-              }
             }
           }
         }
