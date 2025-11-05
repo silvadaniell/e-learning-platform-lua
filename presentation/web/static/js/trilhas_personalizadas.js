@@ -1453,12 +1453,11 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
     // Fechar modal anterior imediatamente
     document.querySelector('.modal-overlay')?.remove();
 
-    // Mostrar quiz imediatamente com questões mock (carregamento rápido)
-    const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
-    showQuizModal(trilhaId, module, mockQuestions);
+    // Mostrar modal de carregamento com animação
+    const loadingModal = showQuizLoadingModal(module);
 
-    // Carregar questões reais em background
     try {
+        // Carregar questões reais em background
         const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
             method: 'POST',
             headers: {
@@ -1474,23 +1473,40 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
         const questionsResult = await questionsResponse.json();
 
         if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
-            // Substituir questões mock pelas reais se o modal ainda estiver aberto
-            const quizModal = document.querySelector('.quiz-modal-overlay');
-            if (quizModal && !quizModal.querySelector('.quiz-results')) {
-                // Remover modal atual e recriar com questões reais
-                quizModal.remove();
-                showQuizModal(trilhaId, module, questionsResult.data.questions);
-            }
+            // Fechar modal de loading
+            loadingModal.remove();
+            
+            // Mostrar quiz com questões reais
+            showQuizModal(trilhaId, module, questionsResult.data.questions);
+        } else {
+            throw new Error('Erro ao gerar questões');
         }
     } catch (error) {
         console.error('Error generating questions:', error);
-        // Manter questões mock em caso de erro
+        
+        // Fechar modal de loading
+        loadingModal.remove();
+        
+        // Mostrar erro ou usar questões mock como fallback
+        if (window.elearning?.showNotification) {
+            window.elearning.showNotification('Erro ao carregar questões. Usando questões de exemplo.', 'warning');
+        }
+        
+        // Fallback: usar questões mock
+        const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
+        showQuizModal(trilhaId, module, mockQuestions);
     }
 }
 
 // Start module quiz
 async function startModuleQuiz(trilhaId, module) {
     console.log('Starting quiz for module:', module);
+
+    // Fechar modal anterior se existir
+    document.querySelector('.modal-overlay')?.remove();
+
+    // Mostrar modal de carregamento com animação
+    const loadingModal = showQuizLoadingModal(module);
 
     try {
         // Gerar questões para o módulo usando LLM
@@ -1510,17 +1526,30 @@ async function startModuleQuiz(trilhaId, module) {
 
         const questionsResult = await questionsResponse.json();
 
+        // Fechar modal de loading
+        loadingModal.remove();
+
         if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
             // Iniciar quiz com as questões geradas
             showQuizModal(trilhaId, module, questionsResult.data.questions);
         } else {
             // Fallback: usar questões mock
+            if (window.elearning?.showNotification) {
+                window.elearning.showNotification('Usando questões de exemplo.', 'info');
+            }
             const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
             showQuizModal(trilhaId, module, mockQuestions);
         }
     } catch (error) {
         console.error('Error generating questions:', error);
+        
+        // Fechar modal de loading
+        loadingModal.remove();
+        
         // Fallback: usar questões mock
+        if (window.elearning?.showNotification) {
+            window.elearning.showNotification('Erro ao carregar questões. Usando questões de exemplo.', 'warning');
+        }
         const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
         showQuizModal(trilhaId, module, mockQuestions);
     }
@@ -2114,6 +2143,66 @@ function showLoadingInModal() {
             steps[2].classList.add('active');
         }
     }, 1600);
+}
+
+// Show quiz loading modal with progress animation
+function showQuizLoadingModal(module) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay quiz-loading-overlay';
+    modal.innerHTML = `
+        <div class="modal-content quiz-loading-modal">
+            <div class="creation-progress">
+                <h3 style="margin-bottom: 2rem; color: var(--gray-800);">Carregando Trilha</h3>
+                <div class="progress-steps">
+                    <div class="step active">
+                        <i class="fas fa-cog fa-spin"></i>
+                        <span>Carregando módulo "${module.titulo}"...</span>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-brain"></i>
+                        <span>Gerando questões com IA...</span>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-check"></i>
+                        <span>Preparando quiz...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Animar progresso
+    animateQuizLoadingProgress(modal);
+
+    return modal;
+}
+
+// Animate quiz loading progress steps
+function animateQuizLoadingProgress(modal) {
+    const steps = modal.querySelectorAll('.progress-steps .step');
+    let currentStep = 0;
+
+    const animateStep = () => {
+        if (currentStep < steps.length) {
+            // Activate current step
+            steps[currentStep].classList.add('active');
+
+            // Deactivate previous step
+            if (currentStep > 0) {
+                steps[currentStep - 1].classList.remove('active');
+                steps[currentStep - 1].classList.add('completed');
+            }
+
+            currentStep++;
+            if (currentStep < steps.length) {
+                setTimeout(animateStep, 2000); // 2 seconds per step
+            }
+        }
+    };
+
+    setTimeout(animateStep, 1000); // Start after 1 second
 }
 
 // Show quiz cancel confirmation modal
