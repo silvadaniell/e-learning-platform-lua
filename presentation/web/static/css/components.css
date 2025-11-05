@@ -1232,6 +1232,24 @@
     font-size: 1.2rem;
 }
 
+/* Quiz Loading Modal Styles */
+.quiz-loading-modal {
+    max-width: 500px;
+    width: 90%;
+}
+
+.quiz-loading-modal .creation-progress {
+    margin: 0;
+    padding: 3rem 2rem;
+}
+
+.quiz-loading-modal h3 {
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+    margin-bottom: 2rem;
+    color: var(--gray-800);
+}
+
 /* Success Modal Styles */
 .success-modal-overlay {
     position: fixed !important;

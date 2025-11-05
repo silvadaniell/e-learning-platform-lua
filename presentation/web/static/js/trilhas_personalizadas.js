@@ -316,10 +316,32 @@ function animateCreationProgress() {
 function showCreationSuccess(trilhaData) {
     console.log('showCreationSuccess called with:', trilhaData);
 
+    // Resetar completamente o modal de criação e sua animação
     const modal = document.getElementById('createTrilhaModal');
     if (modal) {
         console.log('Closing modal');
         modal.style.display = 'none';
+    }
+    
+    // Resetar a animação de progresso
+    const progress = document.getElementById('trilhaCreationProgress');
+    if (progress) {
+        progress.style.display = 'none';
+        // Resetar os steps da animação
+        const steps = progress.querySelectorAll('.progress-steps .step');
+        steps.forEach((step, index) => {
+            step.classList.remove('active', 'completed');
+            if (index === 0) {
+                step.classList.add('active');
+            }
+        });
+    }
+    
+    // Resetar o formulário
+    const form = document.getElementById('createTrilhaForm');
+    if (form) {
+        form.style.display = 'block';
+        form.reset();
     }
 
     // Show success notification
@@ -569,6 +591,30 @@ window.startTrilha = async function startTrilha(trilhaId) {
             alert('Você precisa estar logado para iniciar trilhas');
         }
         return;
+    }
+
+    // Fechar todos os modais abertos (incluindo modal de sucesso)
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.remove();
+    });
+    
+    // Garantir que o modal de criação e sua animação estejam completamente fechados
+    const createModal = document.getElementById('createTrilhaModal');
+    if (createModal) {
+        createModal.style.display = 'none';
+    }
+    
+    const createProgress = document.getElementById('trilhaCreationProgress');
+    if (createProgress) {
+        createProgress.style.display = 'none';
+        // Resetar animação
+        const steps = createProgress.querySelectorAll('.progress-steps .step');
+        steps.forEach((step, index) => {
+            step.classList.remove('active', 'completed');
+            if (index === 0) {
+                step.classList.add('active');
+            }
+        });
     }
 
     try {
@@ -1208,10 +1254,30 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
             : 0;
         const totalStudyTime = userProgress.total_study_time_minutes || 0;
 
+        // Buscar questões com respostas de todos os módulos
+        const allQuestionsWithAnswers = [];
+        for (const module of completedModules) {
+            try {
+                const questionsResponse = await fetch(`/api/v1/trilhas-personalizadas/module/${module.id}/questions-with-answers/${currentUser.id}`);
+                const questionsResult = await questionsResponse.json();
+                
+                if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
+                    const moduleQuestions = questionsResult.data.questions.map(q => ({
+                        ...q,
+                        moduleTitle: module.titulo,
+                        moduleIndex: completedModules.indexOf(module) + 1
+                    }));
+                    allQuestionsWithAnswers.push(...moduleQuestions);
+                }
+            } catch (error) {
+                console.error(`Erro ao buscar questões do módulo ${module.id}:`, error);
+            }
+        }
+
         const modal = document.createElement('div');
         modal.className = 'modal-overlay trilha-results-overlay';
         modal.innerHTML = `
-            <div class="modal-content trilha-results-modal" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-content trilha-results-modal" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
                 <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem;">
                     <h2 style="margin: 0; font-size: 1.8rem;">🎉 Trilha Concluída!</h2>
                     <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">${trilha.titulo}</p>
@@ -1237,7 +1303,7 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
                     </div>
 
                     <h3 style="margin-bottom: 1.5rem; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">Resultados por Módulo</h3>
-                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem;">
                         ${completedModules.map((module, index) => {
                             const moduleProgress = userProgress.content_progress?.find(p => p.conteudo_id === module.id);
                             const nota = moduleProgress?.nota || 0;
@@ -1272,6 +1338,54 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
                             `;
                         }).join('')}
                     </div>
+
+                    ${allQuestionsWithAnswers.length > 0 ? `
+                        <div class="quiz-review" style="margin-top: 2rem;">
+                            <h4 style="margin-bottom: 1.5rem; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">Revisão de Todas as Questões:</h4>
+                            <div class="questions-review" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                                ${allQuestionsWithAnswers.map((result, index) => {
+                                    const isCorrect = result.is_correct !== null ? result.is_correct : (result.user_answer === result.correct_answer);
+                                    return `
+                                        <div class="question-review ${isCorrect ? 'correct' : 'incorrect'}" style="border: 1px solid ${isCorrect ? '#d4edda' : '#f8d7da'}; border-radius: 12px; padding: 1.5rem; background: ${isCorrect ? '#f8fff9' : '#fff8f8'};">
+                                            <div class="question-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                                <div>
+                                                    <span class="question-num" style="font-weight: 600; color: #667eea;">Questão ${index + 1}</span>
+                                                    ${result.moduleTitle ? `<span style="color: #666; font-size: 0.9rem; margin-left: 0.5rem;">- Módulo ${result.moduleIndex}: ${result.moduleTitle}</span>` : ''}
+                                                </div>
+                                                <span class="question-status" style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; color: ${isCorrect ? '#28a745' : '#dc3545'};">
+                                                    <i class="fas ${isCorrect ? 'fa-check' : 'fa-times'}"></i>
+                                                    ${isCorrect ? 'Correta' : 'Incorreta'}
+                                                </span>
+                                            </div>
+                                            <div class="question-content">
+                                                <p class="question-text" style="margin: 0 0 1rem 0; font-size: 1rem; color: #333; line-height: 1.6;">${result.question}</p>
+                                                <div class="answers-comparison" style="margin-bottom: 1rem;">
+                                                    <div class="user-answer" style="padding: 0.75rem; background: ${isCorrect ? '#d4edda' : '#f8d7da'}; border-radius: 8px; margin-bottom: ${!isCorrect ? '0.5rem' : '0'};">
+                                                        <strong style="color: #333;">Sua resposta:</strong> 
+                                                        <span class="${isCorrect ? 'correct' : 'incorrect'}" style="font-weight: 600; color: ${isCorrect ? '#28a745' : '#dc3545'}; margin-left: 0.5rem;">
+                                                            ${result.user_answer ? result.user_answer.toUpperCase() : 'Não respondida'}
+                                                        </span>
+                                                    </div>
+                                                    ${!isCorrect ? `
+                                                        <div class="correct-answer" style="padding: 0.75rem; background: #d4edda; border-radius: 8px;">
+                                                            <strong style="color: #333;">Resposta correta:</strong> 
+                                                            <span class="correct" style="font-weight: 600; color: #28a745; margin-left: 0.5rem;">${result.correct_answer.toUpperCase()}</span>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                                ${result.explanation ? `
+                                                    <div class="explanation" style="padding: 1rem; background: #f0f4f8; border-radius: 8px; border-left: 4px solid #667eea;">
+                                                        <strong style="color: #333; display: block; margin-bottom: 0.5rem;">Explicação:</strong>
+                                                        <p style="margin: 0; color: #555; line-height: 1.6;">${result.explanation}</p>
+                                                    </div>
+                                                ` : ''}
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="modal-footer" style="padding: 1.5rem; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 1rem;">
                     <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">
@@ -1453,38 +1567,87 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
     // Fechar modal anterior imediatamente
     document.querySelector('.modal-overlay')?.remove();
 
-    // Mostrar quiz imediatamente com questões mock (carregamento rápido)
-    const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
-    showQuizModal(trilhaId, module, mockQuestions);
+    // Mostrar modal de carregamento com animação
+    const loadingModal = showQuizLoadingModal(module);
 
-    // Carregar questões reais em background
     try {
-        const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                topic: module.titulo,
-                difficulty: 'iniciante',
-                count: module.questions_count || 10
-            })
-        });
-
-        const questionsResult = await questionsResponse.json();
-
-        if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
-            // Substituir questões mock pelas reais se o modal ainda estiver aberto
-            const quizModal = document.querySelector('.quiz-modal-overlay');
-            if (quizModal && !quizModal.querySelector('.quiz-results')) {
-                // Remover modal atual e recriar com questões reais
-                quizModal.remove();
-                showQuizModal(trilhaId, module, questionsResult.data.questions);
+        // Primeiro, tentar buscar questões salvas do banco de dados
+        let questions = null;
+        let fromDatabase = false;
+        
+        if (module.id) {
+            try {
+                const savedQuestionsResponse = await fetch(`/api/v1/trilhas-personalizadas/module/${module.id}/questions`);
+                const savedQuestionsResult = await savedQuestionsResponse.json();
+                
+                if (savedQuestionsResult.success && savedQuestionsResult.data && savedQuestionsResult.data.questions && savedQuestionsResult.data.questions.length > 0) {
+                    questions = savedQuestionsResult.data.questions;
+                    fromDatabase = savedQuestionsResult.data.from_database || false;
+                    console.log(`Carregadas ${questions.length} questões do banco de dados para módulo ${module.id}`);
+                }
+            } catch (error) {
+                console.warn('Erro ao buscar questões salvas, tentando gerar:', error);
             }
         }
+        
+        // Se não encontrou questões salvas, usar endpoint de geração (que também busca questões salvas primeiro)
+        if (!questions || questions.length === 0) {
+            console.log(`Gerando questões para módulo ${module.id}...`);
+            const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    trilha_id: trilhaId,
+                    module_id: module.id,
+                    topic: module.titulo,
+                    difficulty: 'iniciante',
+                    count: module.questions_count || 10
+                })
+            });
+
+            const questionsResult = await questionsResponse.json();
+
+            if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
+                questions = questionsResult.data.questions;
+                fromDatabase = questionsResult.data.from_database || false;
+                
+                if (fromDatabase) {
+                    console.log(`✓ Questões carregadas do banco via endpoint de geração (${questions.length} questões)`);
+                } else {
+                    console.log(`✓ Questões geradas pela IA e salvas no banco (${questions.length} questões)`);
+                    // Aguardar um pouco para garantir que foram salvas antes de continuar
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } else {
+                throw new Error('Erro ao carregar questões');
+            }
+        }
+
+        // Fechar modal de loading
+        loadingModal.remove();
+        
+        // Mostrar quiz com questões
+        if (questions && questions.length > 0) {
+            showQuizModal(trilhaId, module, questions);
+        } else {
+            throw new Error('Nenhuma questão disponível');
+        }
     } catch (error) {
-        console.error('Error generating questions:', error);
-        // Manter questões mock em caso de erro
+        console.error('Error loading questions:', error);
+        
+        // Fechar modal de loading
+        loadingModal.remove();
+        
+        // Mostrar erro ou usar questões mock como fallback
+        if (window.elearning?.showNotification) {
+            window.elearning.showNotification('Erro ao carregar questões. Usando questões de exemplo.', 'warning');
+        }
+        
+        // Fallback: usar questões mock
+        const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
+        showQuizModal(trilhaId, module, mockQuestions);
     }
 }
 
@@ -1492,35 +1655,84 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
 async function startModuleQuiz(trilhaId, module) {
     console.log('Starting quiz for module:', module);
 
+    // Fechar modal anterior se existir
+    document.querySelector('.modal-overlay')?.remove();
+
+    // Mostrar modal de carregamento com animação
+    const loadingModal = showQuizLoadingModal(module);
+
     try {
-        // Gerar questões para o módulo usando LLM
-        const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                trilha_id: trilhaId,
-                module_id: module.id,
-                topic: module.titulo,
-                difficulty: 'iniciante', // TODO: pegar da trilha
-                count: module.questions_count || 10
-            })
-        });
+        // Primeiro, tentar buscar questões salvas do banco de dados
+        let questions = null;
+        
+        if (module.id) {
+            try {
+                const savedQuestionsResponse = await fetch(`/api/v1/trilhas-personalizadas/module/${module.id}/questions`);
+                const savedQuestionsResult = await savedQuestionsResponse.json();
+                
+                if (savedQuestionsResult.success && savedQuestionsResult.data && savedQuestionsResult.data.questions && savedQuestionsResult.data.questions.length > 0) {
+                    questions = savedQuestionsResult.data.questions;
+                    console.log(`Carregadas ${questions.length} questões do banco de dados para módulo ${module.id}`);
+                }
+            } catch (error) {
+                console.warn('Erro ao buscar questões salvas:', error);
+            }
+        }
+        
+        // Se não encontrou questões salvas, usar endpoint de geração (que também busca questões salvas primeiro)
+        if (!questions || questions.length === 0) {
+            const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    trilha_id: trilhaId,
+                    module_id: module.id,
+                    topic: module.titulo,
+                    difficulty: 'iniciante', // TODO: pegar da trilha
+                    count: module.questions_count || 10
+                })
+            });
 
-        const questionsResult = await questionsResponse.json();
+            const questionsResult = await questionsResponse.json();
 
-        if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
-            // Iniciar quiz com as questões geradas
-            showQuizModal(trilhaId, module, questionsResult.data.questions);
+            if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
+                questions = questionsResult.data.questions;
+                const fromDatabase = questionsResult.data.from_database || false;
+                
+                if (fromDatabase) {
+                    console.log(`Questões carregadas do banco via endpoint de geração`);
+                } else {
+                    console.log(`Questões geradas pela IA (não foram encontradas no banco)`);
+                }
+            }
+        }
+
+        // Fechar modal de loading
+        loadingModal.remove();
+
+        if (questions && questions.length > 0) {
+            // Iniciar quiz com as questões
+            showQuizModal(trilhaId, module, questions);
         } else {
             // Fallback: usar questões mock
+            if (window.elearning?.showNotification) {
+                window.elearning.showNotification('Usando questões de exemplo.', 'info');
+            }
             const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
             showQuizModal(trilhaId, module, mockQuestions);
         }
     } catch (error) {
-        console.error('Error generating questions:', error);
+        console.error('Error loading questions:', error);
+        
+        // Fechar modal de loading
+        loadingModal.remove();
+        
         // Fallback: usar questões mock
+        if (window.elearning?.showNotification) {
+            window.elearning.showNotification('Erro ao carregar questões. Usando questões de exemplo.', 'warning');
+        }
         const mockQuestions = generateMockQuestions(module.titulo, module.questions_count || 10);
         showQuizModal(trilhaId, module, mockQuestions);
     }
@@ -1735,8 +1947,57 @@ async function finishQuiz(trilhaId, module, questions, answers, startTime, timer
     const currentUser = window.elearning?.getCurrentUser();
     if (currentUser && module && module.id) {
         try {
+            // Salvar progresso
             await saveQuizProgress(currentUser.id, module.id, percentage, tempoEstudoMinutos);
             console.log('Progresso do quiz salvo com sucesso');
+            
+            // Salvar respostas individuais para revisão posterior
+            // Só salvar se as questões tiverem ID (questões do banco de dados)
+            try {
+                const answersToSave = questions
+                    .map((question, index) => {
+                        // Verificar se a questão tem ID (questões do banco têm ID numérico)
+                        const questionId = question.id;
+                        const hasValidId = questionId && typeof questionId === 'number' && questionId > 0;
+                        
+                        if (hasValidId && answers[index]) {
+                            return {
+                                question_id: questionId,
+                                selected_answer: answers[index]
+                            };
+                        }
+                        return null;
+                    })
+                    .filter(a => a !== null);
+                
+                if (answersToSave.length > 0) {
+                    const saveResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/save-answers', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            user_id: currentUser.id,
+                            module_id: module.id,
+                            trilha_id: trilhaId,
+                            answers: answersToSave,
+                            total_time_seconds: totalTime
+                        })
+                    });
+                    
+                    const saveResult = await saveResponse.json();
+                    if (saveResult.success) {
+                        console.log(`✓ ${answersToSave.length} respostas do quiz salvas com sucesso`);
+                    } else {
+                        console.warn('Erro ao salvar respostas:', saveResult);
+                    }
+                } else {
+                    console.log('Questões não têm ID válido, respostas não serão salvas para revisão');
+                }
+            } catch (error) {
+                console.error('Erro ao salvar respostas individuais:', error);
+                // Não interromper o fluxo se falhar ao salvar respostas
+            }
         } catch (error) {
             console.error('Erro ao salvar progresso do quiz:', error);
             if (window.elearning?.showNotification) {
@@ -2114,6 +2375,82 @@ function showLoadingInModal() {
             steps[2].classList.add('active');
         }
     }, 1600);
+}
+
+// Show quiz loading modal with progress animation
+function showQuizLoadingModal(module) {
+    // Garantir que o modal de criação esteja completamente fechado e resetado
+    const createModal = document.getElementById('createTrilhaModal');
+    if (createModal) {
+        createModal.style.display = 'none';
+    }
+    
+    const createProgress = document.getElementById('trilhaCreationProgress');
+    if (createProgress) {
+        createProgress.style.display = 'none';
+    }
+    
+    // Fechar qualquer outro modal que possa estar aberto (exceto o modal de criação que é tratado acima)
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.remove();
+    });
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay quiz-loading-overlay';
+    modal.innerHTML = `
+        <div class="modal-content quiz-loading-modal">
+            <div class="creation-progress">
+                <h3 style="margin-bottom: 2rem; color: var(--gray-800);">Carregando Trilha</h3>
+                <div class="progress-steps">
+                    <div class="step active">
+                        <i class="fas fa-book"></i>
+                        <span>Carregando módulo "${module.titulo}"...</span>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-database"></i>
+                        <span>Buscando questões...</span>
+                    </div>
+                    <div class="step">
+                        <i class="fas fa-check"></i>
+                        <span>Preparando quiz...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Animar progresso
+    animateQuizLoadingProgress(modal);
+
+    return modal;
+}
+
+// Animate quiz loading progress steps
+function animateQuizLoadingProgress(modal) {
+    const steps = modal.querySelectorAll('.progress-steps .step');
+    let currentStep = 0;
+
+    const animateStep = () => {
+        if (currentStep < steps.length) {
+            // Activate current step
+            steps[currentStep].classList.add('active');
+
+            // Deactivate previous step
+            if (currentStep > 0) {
+                steps[currentStep - 1].classList.remove('active');
+                steps[currentStep - 1].classList.add('completed');
+            }
+
+            currentStep++;
+            if (currentStep < steps.length) {
+                setTimeout(animateStep, 2000); // 2 seconds per step
+            }
+        }
+    };
+
+    setTimeout(animateStep, 1000); // Start after 1 second
 }
 
 // Show quiz cancel confirmation modal
