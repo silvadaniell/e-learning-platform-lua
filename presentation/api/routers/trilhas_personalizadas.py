@@ -15,10 +15,72 @@ import sys
 
 router = APIRouter()
 
+@router.get("/module/{module_id}/questions", response_model=APIResponse)
+async def get_module_questions(module_id: int):
+    try:
+        from data_access.repositories.questao_repository import QuestaoRepository
+        import json
+        
+        questao_repo = QuestaoRepository()
+        
+        # Buscar questões salvas do módulo
+        saved_questions = await questao_repo.get_by_conteudo_id(module_id)
+        
+        if saved_questions and len(saved_questions) > 0:
+            # Converter questões do banco para o formato esperado pelo frontend
+            questions = []
+            for questao in saved_questions:
+                # Parsear alternativas do JSON
+                alternatives_dict = json.loads(questao.alternativas)
+                alternatives = [
+                    {"letter": letter, "text": text}
+                    for letter, text in alternatives_dict.items()
+                ]
+                
+                question = {
+                    "id": questao.id,
+                    "question": questao.pergunta,
+                    "alternatives": alternatives,
+                    "correct_answer": questao.resposta_correta,
+                    "explanation": questao.explicacao or ""
+                }
+                questions.append(question)
+            
+            return APIResponse(
+                success=True,
+                message="Questões carregadas com sucesso",
+                data={
+                    "questions": questions,
+                    "module_id": module_id,
+                    "total_questions": len(questions),
+                    "from_database": True
+                }
+            )
+        else:
+            # Nenhuma questão salva encontrada
+            return APIResponse(
+                success=True,
+                message="Nenhuma questão encontrada para este módulo",
+                data={
+                    "questions": [],
+                    "module_id": module_id,
+                    "total_questions": 0,
+                    "from_database": False
+                }
+            )
+        
+    except Exception as e:
+        print(f"Error getting module questions: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar questões: {str(e)}")
+
 @router.post("/quiz/generate", response_model=APIResponse)
 async def generate_quiz_questions(request: dict):
     """
     Generate quiz questions for a module using AI.
+    NOTE: This endpoint is now deprecated in favor of using saved questions.
+    It will be kept for fallback scenarios.
     """
     try:
         trilha_id = request.get('trilha_id')
@@ -27,13 +89,147 @@ async def generate_quiz_questions(request: dict):
         difficulty = request.get('difficulty', 'iniciante')
         count = request.get('count', 10)
         
-        # Tentar usar LLM para gerar questões de qualidade
+        # Primeiro, tentar buscar questões salvas do banco
+        if module_id:
+            from data_access.repositories.questao_repository import QuestaoRepository
+            import json
+            
+            questao_repo = QuestaoRepository()
+            saved_questions = await questao_repo.get_by_conteudo_id(module_id)
+            
+            if saved_questions and len(saved_questions) > 0:
+                print(f"Questões encontradas no banco para módulo {module_id}: {len(saved_questions)} questões")
+                # Converter questões do banco para o formato esperado
+                questions = []
+                for questao in saved_questions:
+                    alternatives_dict = json.loads(questao.alternativas)
+                    alternatives = [
+                        {"letter": letter, "text": text}
+                        for letter, text in alternatives_dict.items()
+                    ]
+                    
+                    question = {
+                        "id": questao.id,
+                        "question": questao.pergunta,
+                        "alternatives": alternatives,
+                        "correct_answer": questao.resposta_correta,
+                        "explanation": questao.explicacao or ""
+                    }
+                    questions.append(question)
+                
+                return APIResponse(
+                    success=True,
+                    message="Questões carregadas do banco de dados",
+                    data={
+                        "questions": questions,
+                        "module_id": module_id,
+                        "trilha_id": trilha_id,
+                        "topic": topic,
+                        "difficulty": difficulty,
+                        "total_questions": len(questions),
+                        "from_database": True
+                    }
+                )
+            else:
+                print(f"Nenhuma questão encontrada no banco para módulo {module_id}, gerando novas...")
+        
+        # Se não encontrou questões salvas, gerar novas e salvar no banco
+        print(f"Gerando {count} questões para módulo {module_id} com tópico '{topic}' e dificuldade '{difficulty}'")
+        
+        # Importar repositório antes de gerar questões
+        from data_access.repositories.questao_repository import QuestaoRepository
+        import json
+        
+        questao_repo = QuestaoRepository()
+        
+        # Verificar novamente se questões foram criadas entre a primeira verificação e agora (evitar race condition)
+        if module_id:
+            existing_count = await questao_repo.count_by_conteudo_id(module_id)
+            if existing_count > 0:
+                print(f"Questões foram criadas entre verificações para módulo {module_id}, carregando do banco...")
+                saved_questions = await questao_repo.get_by_conteudo_id(module_id)
+                if saved_questions and len(saved_questions) > 0:
+                    questions = []
+                    for questao in saved_questions:
+                        alternatives_dict = json.loads(questao.alternativas)
+                        alternatives = [
+                            {"letter": letter, "text": text}
+                            for letter, text in alternatives_dict.items()
+                        ]
+                        question = {
+                            "id": questao.id,
+                            "question": questao.pergunta,
+                            "alternatives": alternatives,
+                            "correct_answer": questao.resposta_correta,
+                            "explanation": questao.explicacao or ""
+                        }
+                        questions.append(question)
+                    
+                    return APIResponse(
+                        success=True,
+                        message="Questões carregadas do banco de dados",
+                        data={
+                            "questions": questions,
+                            "module_id": module_id,
+                            "trilha_id": trilha_id,
+                            "topic": topic,
+                            "difficulty": difficulty,
+                            "total_questions": len(questions),
+                            "from_database": True
+                        }
+                    )
+        
+        # Gerar questões
         try:
             questions = await generate_questions_with_llm(topic, difficulty, count)
+            print(f"Questões geradas pela IA: {len(questions)} questões")
         except Exception as e:
             print(f"Erro ao gerar questões com LLM: {e}")
             # Fallback para questões melhoradas
             questions = generate_improved_mock_questions(topic, difficulty, count)
+            print(f"Usando questões mock como fallback: {len(questions)} questões")
+        
+        # Salvar questões geradas no banco de dados ANTES de retornar (se module_id foi fornecido)
+        if module_id and questions:
+            try:
+                # Verificar uma última vez antes de salvar (evitar duplicação)
+                existing_count = await questao_repo.count_by_conteudo_id(module_id)
+                print(f"Verificando questões existentes antes de salvar para módulo {module_id}: {existing_count} questões encontradas")
+                
+                if existing_count == 0:
+                    print(f"Salvando {len(questions)} questões no banco para módulo {module_id}...")
+                    # Salvar questões no banco de dados
+                    questions_to_save = []
+                    for idx, question in enumerate(questions, 1):
+                        # Converter alternativas para JSON string
+                        alternatives_dict = {alt["letter"]: alt["text"] for alt in question["alternatives"]}
+                        alternatives_json = json.dumps(alternatives_dict, ensure_ascii=False)
+                        
+                        question_data = {
+                            "conteudo_id": module_id,
+                            "pergunta": question["question"],
+                            "alternativas": alternatives_json,
+                            "resposta_correta": question["correct_answer"],
+                            "explicacao": question.get("explanation", ""),
+                            "ordem": idx
+                        }
+                        questions_to_save.append(question_data)
+                    
+                    # Salvar todas as questões do módulo
+                    if questions_to_save:
+                        saved_questions = await questao_repo.create_batch(questions_to_save)
+                        print(f"✓ Salvas {len(saved_questions)} questões para módulo {module_id}")
+                        
+                        # Verificar se salvou corretamente
+                        verify_count = await questao_repo.count_by_conteudo_id(module_id)
+                        print(f"✓ Verificação: {verify_count} questões agora no banco para módulo {module_id}")
+                else:
+                    print(f"Questões já existem para módulo {module_id}, não salvando duplicatas")
+            except Exception as e:
+                print(f"Erro ao salvar questões no banco: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continuar mesmo se falhar ao salvar (mas logar o erro)
         
         return APIResponse(
             success=True,
@@ -44,7 +240,8 @@ async def generate_quiz_questions(request: dict):
                 "trilha_id": trilha_id,
                 "topic": topic,
                 "difficulty": difficulty,
-                "total_questions": len(questions)
+                "total_questions": len(questions),
+                "from_database": False
             }
         )
         
@@ -473,7 +670,7 @@ Responda APENAS o título melhorado:"""
         
         trilha_id = trilha.id
         
-        # Criar módulos como conteúdos
+        # Criar módulos como conteúdos (sem gerar questões ainda - serão geradas quando o usuário iniciar)
         modules = []
         for i in range(modules_count.get(request.difficulty, 3)):
             conteudo_data = {
@@ -487,8 +684,8 @@ Responda APENAS o título melhorado:"""
                     "id": conteudo.id,
                     "titulo": conteudo.titulo,
                     "descricao": conteudo.material,
-                "ordem": i + 1,
-                "questions_count": 10
+                    "ordem": i + 1,
+                    "questions_count": 10  # Questões serão geradas quando o módulo for iniciado
                 })
         
         # Inscrever o usuário na trilha automaticamente

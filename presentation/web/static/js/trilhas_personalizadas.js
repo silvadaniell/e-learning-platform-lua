@@ -316,10 +316,32 @@ function animateCreationProgress() {
 function showCreationSuccess(trilhaData) {
     console.log('showCreationSuccess called with:', trilhaData);
 
+    // Resetar completamente o modal de criação e sua animação
     const modal = document.getElementById('createTrilhaModal');
     if (modal) {
         console.log('Closing modal');
         modal.style.display = 'none';
+    }
+    
+    // Resetar a animação de progresso
+    const progress = document.getElementById('trilhaCreationProgress');
+    if (progress) {
+        progress.style.display = 'none';
+        // Resetar os steps da animação
+        const steps = progress.querySelectorAll('.progress-steps .step');
+        steps.forEach((step, index) => {
+            step.classList.remove('active', 'completed');
+            if (index === 0) {
+                step.classList.add('active');
+            }
+        });
+    }
+    
+    // Resetar o formulário
+    const form = document.getElementById('createTrilhaForm');
+    if (form) {
+        form.style.display = 'block';
+        form.reset();
     }
 
     // Show success notification
@@ -569,6 +591,30 @@ window.startTrilha = async function startTrilha(trilhaId) {
             alert('Você precisa estar logado para iniciar trilhas');
         }
         return;
+    }
+
+    // Fechar todos os modais abertos (incluindo modal de sucesso)
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.remove();
+    });
+    
+    // Garantir que o modal de criação e sua animação estejam completamente fechados
+    const createModal = document.getElementById('createTrilhaModal');
+    if (createModal) {
+        createModal.style.display = 'none';
+    }
+    
+    const createProgress = document.getElementById('trilhaCreationProgress');
+    if (createProgress) {
+        createProgress.style.display = 'none';
+        // Resetar animação
+        const steps = createProgress.querySelectorAll('.progress-steps .step');
+        steps.forEach((step, index) => {
+            step.classList.remove('active', 'completed');
+            if (index === 0) {
+                step.classList.add('active');
+            }
+        });
     }
 
     try {
@@ -1457,32 +1503,71 @@ async function startModuleQuizWithModalControl(trilhaId, module) {
     const loadingModal = showQuizLoadingModal(module);
 
     try {
-        // Carregar questões reais em background
-        const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                topic: module.titulo,
-                difficulty: 'iniciante',
-                count: module.questions_count || 10
-            })
-        });
+        // Primeiro, tentar buscar questões salvas do banco de dados
+        let questions = null;
+        let fromDatabase = false;
+        
+        if (module.id) {
+            try {
+                const savedQuestionsResponse = await fetch(`/api/v1/trilhas-personalizadas/module/${module.id}/questions`);
+                const savedQuestionsResult = await savedQuestionsResponse.json();
+                
+                if (savedQuestionsResult.success && savedQuestionsResult.data && savedQuestionsResult.data.questions && savedQuestionsResult.data.questions.length > 0) {
+                    questions = savedQuestionsResult.data.questions;
+                    fromDatabase = savedQuestionsResult.data.from_database || false;
+                    console.log(`Carregadas ${questions.length} questões do banco de dados para módulo ${module.id}`);
+                }
+            } catch (error) {
+                console.warn('Erro ao buscar questões salvas, tentando gerar:', error);
+            }
+        }
+        
+        // Se não encontrou questões salvas, usar endpoint de geração (que também busca questões salvas primeiro)
+        if (!questions || questions.length === 0) {
+            console.log(`Gerando questões para módulo ${module.id}...`);
+            const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    trilha_id: trilhaId,
+                    module_id: module.id,
+                    topic: module.titulo,
+                    difficulty: 'iniciante',
+                    count: module.questions_count || 10
+                })
+            });
 
-        const questionsResult = await questionsResponse.json();
+            const questionsResult = await questionsResponse.json();
 
-        if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
-            // Fechar modal de loading
-            loadingModal.remove();
-            
-            // Mostrar quiz com questões reais
-            showQuizModal(trilhaId, module, questionsResult.data.questions);
+            if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
+                questions = questionsResult.data.questions;
+                fromDatabase = questionsResult.data.from_database || false;
+                
+                if (fromDatabase) {
+                    console.log(`✓ Questões carregadas do banco via endpoint de geração (${questions.length} questões)`);
+                } else {
+                    console.log(`✓ Questões geradas pela IA e salvas no banco (${questions.length} questões)`);
+                    // Aguardar um pouco para garantir que foram salvas antes de continuar
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } else {
+                throw new Error('Erro ao carregar questões');
+            }
+        }
+
+        // Fechar modal de loading
+        loadingModal.remove();
+        
+        // Mostrar quiz com questões
+        if (questions && questions.length > 0) {
+            showQuizModal(trilhaId, module, questions);
         } else {
-            throw new Error('Erro ao gerar questões');
+            throw new Error('Nenhuma questão disponível');
         }
     } catch (error) {
-        console.error('Error generating questions:', error);
+        console.error('Error loading questions:', error);
         
         // Fechar modal de loading
         loadingModal.remove();
@@ -1509,29 +1594,59 @@ async function startModuleQuiz(trilhaId, module) {
     const loadingModal = showQuizLoadingModal(module);
 
     try {
-        // Gerar questões para o módulo usando LLM
-        const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                trilha_id: trilhaId,
-                module_id: module.id,
-                topic: module.titulo,
-                difficulty: 'iniciante', // TODO: pegar da trilha
-                count: module.questions_count || 10
-            })
-        });
+        // Primeiro, tentar buscar questões salvas do banco de dados
+        let questions = null;
+        
+        if (module.id) {
+            try {
+                const savedQuestionsResponse = await fetch(`/api/v1/trilhas-personalizadas/module/${module.id}/questions`);
+                const savedQuestionsResult = await savedQuestionsResponse.json();
+                
+                if (savedQuestionsResult.success && savedQuestionsResult.data && savedQuestionsResult.data.questions && savedQuestionsResult.data.questions.length > 0) {
+                    questions = savedQuestionsResult.data.questions;
+                    console.log(`Carregadas ${questions.length} questões do banco de dados para módulo ${module.id}`);
+                }
+            } catch (error) {
+                console.warn('Erro ao buscar questões salvas:', error);
+            }
+        }
+        
+        // Se não encontrou questões salvas, usar endpoint de geração (que também busca questões salvas primeiro)
+        if (!questions || questions.length === 0) {
+            const questionsResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    trilha_id: trilhaId,
+                    module_id: module.id,
+                    topic: module.titulo,
+                    difficulty: 'iniciante', // TODO: pegar da trilha
+                    count: module.questions_count || 10
+                })
+            });
 
-        const questionsResult = await questionsResponse.json();
+            const questionsResult = await questionsResponse.json();
+
+            if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
+                questions = questionsResult.data.questions;
+                const fromDatabase = questionsResult.data.from_database || false;
+                
+                if (fromDatabase) {
+                    console.log(`Questões carregadas do banco via endpoint de geração`);
+                } else {
+                    console.log(`Questões geradas pela IA (não foram encontradas no banco)`);
+                }
+            }
+        }
 
         // Fechar modal de loading
         loadingModal.remove();
 
-        if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
-            // Iniciar quiz com as questões geradas
-            showQuizModal(trilhaId, module, questionsResult.data.questions);
+        if (questions && questions.length > 0) {
+            // Iniciar quiz com as questões
+            showQuizModal(trilhaId, module, questions);
         } else {
             // Fallback: usar questões mock
             if (window.elearning?.showNotification) {
@@ -1541,7 +1656,7 @@ async function startModuleQuiz(trilhaId, module) {
             showQuizModal(trilhaId, module, mockQuestions);
         }
     } catch (error) {
-        console.error('Error generating questions:', error);
+        console.error('Error loading questions:', error);
         
         // Fechar modal de loading
         loadingModal.remove();
@@ -2147,6 +2262,22 @@ function showLoadingInModal() {
 
 // Show quiz loading modal with progress animation
 function showQuizLoadingModal(module) {
+    // Garantir que o modal de criação esteja completamente fechado e resetado
+    const createModal = document.getElementById('createTrilhaModal');
+    if (createModal) {
+        createModal.style.display = 'none';
+    }
+    
+    const createProgress = document.getElementById('trilhaCreationProgress');
+    if (createProgress) {
+        createProgress.style.display = 'none';
+    }
+    
+    // Fechar qualquer outro modal que possa estar aberto (exceto o modal de criação que é tratado acima)
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+        overlay.remove();
+    });
+    
     const modal = document.createElement('div');
     modal.className = 'modal-overlay quiz-loading-overlay';
     modal.innerHTML = `
@@ -2155,12 +2286,12 @@ function showQuizLoadingModal(module) {
                 <h3 style="margin-bottom: 2rem; color: var(--gray-800);">Carregando Trilha</h3>
                 <div class="progress-steps">
                     <div class="step active">
-                        <i class="fas fa-cog fa-spin"></i>
+                        <i class="fas fa-book"></i>
                         <span>Carregando módulo "${module.titulo}"...</span>
                     </div>
                     <div class="step">
-                        <i class="fas fa-brain"></i>
-                        <span>Gerando questões com IA...</span>
+                        <i class="fas fa-database"></i>
+                        <span>Buscando questões...</span>
                     </div>
                     <div class="step">
                         <i class="fas fa-check"></i>
