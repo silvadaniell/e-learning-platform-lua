@@ -1254,10 +1254,30 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
             : 0;
         const totalStudyTime = userProgress.total_study_time_minutes || 0;
 
+        // Buscar questões com respostas de todos os módulos
+        const allQuestionsWithAnswers = [];
+        for (const module of completedModules) {
+            try {
+                const questionsResponse = await fetch(`/api/v1/trilhas-personalizadas/module/${module.id}/questions-with-answers/${currentUser.id}`);
+                const questionsResult = await questionsResponse.json();
+                
+                if (questionsResult.success && questionsResult.data && questionsResult.data.questions) {
+                    const moduleQuestions = questionsResult.data.questions.map(q => ({
+                        ...q,
+                        moduleTitle: module.titulo,
+                        moduleIndex: completedModules.indexOf(module) + 1
+                    }));
+                    allQuestionsWithAnswers.push(...moduleQuestions);
+                }
+            } catch (error) {
+                console.error(`Erro ao buscar questões do módulo ${module.id}:`, error);
+            }
+        }
+
         const modal = document.createElement('div');
         modal.className = 'modal-overlay trilha-results-overlay';
         modal.innerHTML = `
-            <div class="modal-content trilha-results-modal" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-content trilha-results-modal" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
                 <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem;">
                     <h2 style="margin: 0; font-size: 1.8rem;">🎉 Trilha Concluída!</h2>
                     <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">${trilha.titulo}</p>
@@ -1283,7 +1303,7 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
                     </div>
 
                     <h3 style="margin-bottom: 1.5rem; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">Resultados por Módulo</h3>
-                    <div style="display: flex; flex-direction: column; gap: 1rem;">
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem;">
                         ${completedModules.map((module, index) => {
                             const moduleProgress = userProgress.content_progress?.find(p => p.conteudo_id === module.id);
                             const nota = moduleProgress?.nota || 0;
@@ -1318,6 +1338,54 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
                             `;
                         }).join('')}
                     </div>
+
+                    ${allQuestionsWithAnswers.length > 0 ? `
+                        <div class="quiz-review" style="margin-top: 2rem;">
+                            <h4 style="margin-bottom: 1.5rem; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">Revisão de Todas as Questões:</h4>
+                            <div class="questions-review" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                                ${allQuestionsWithAnswers.map((result, index) => {
+                                    const isCorrect = result.is_correct !== null ? result.is_correct : (result.user_answer === result.correct_answer);
+                                    return `
+                                        <div class="question-review ${isCorrect ? 'correct' : 'incorrect'}" style="border: 1px solid ${isCorrect ? '#d4edda' : '#f8d7da'}; border-radius: 12px; padding: 1.5rem; background: ${isCorrect ? '#f8fff9' : '#fff8f8'};">
+                                            <div class="question-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                                                <div>
+                                                    <span class="question-num" style="font-weight: 600; color: #667eea;">Questão ${index + 1}</span>
+                                                    ${result.moduleTitle ? `<span style="color: #666; font-size: 0.9rem; margin-left: 0.5rem;">- Módulo ${result.moduleIndex}: ${result.moduleTitle}</span>` : ''}
+                                                </div>
+                                                <span class="question-status" style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600; color: ${isCorrect ? '#28a745' : '#dc3545'};">
+                                                    <i class="fas ${isCorrect ? 'fa-check' : 'fa-times'}"></i>
+                                                    ${isCorrect ? 'Correta' : 'Incorreta'}
+                                                </span>
+                                            </div>
+                                            <div class="question-content">
+                                                <p class="question-text" style="margin: 0 0 1rem 0; font-size: 1rem; color: #333; line-height: 1.6;">${result.question}</p>
+                                                <div class="answers-comparison" style="margin-bottom: 1rem;">
+                                                    <div class="user-answer" style="padding: 0.75rem; background: ${isCorrect ? '#d4edda' : '#f8d7da'}; border-radius: 8px; margin-bottom: ${!isCorrect ? '0.5rem' : '0'};">
+                                                        <strong style="color: #333;">Sua resposta:</strong> 
+                                                        <span class="${isCorrect ? 'correct' : 'incorrect'}" style="font-weight: 600; color: ${isCorrect ? '#28a745' : '#dc3545'}; margin-left: 0.5rem;">
+                                                            ${result.user_answer ? result.user_answer.toUpperCase() : 'Não respondida'}
+                                                        </span>
+                                                    </div>
+                                                    ${!isCorrect ? `
+                                                        <div class="correct-answer" style="padding: 0.75rem; background: #d4edda; border-radius: 8px;">
+                                                            <strong style="color: #333;">Resposta correta:</strong> 
+                                                            <span class="correct" style="font-weight: 600; color: #28a745; margin-left: 0.5rem;">${result.correct_answer.toUpperCase()}</span>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                                ${result.explanation ? `
+                                                    <div class="explanation" style="padding: 1rem; background: #f0f4f8; border-radius: 8px; border-left: 4px solid #667eea;">
+                                                        <strong style="color: #333; display: block; margin-bottom: 0.5rem;">Explicação:</strong>
+                                                        <p style="margin: 0; color: #555; line-height: 1.6;">${result.explanation}</p>
+                                                    </div>
+                                                ` : ''}
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="modal-footer" style="padding: 1.5rem; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 1rem;">
                     <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">
@@ -1879,8 +1947,57 @@ async function finishQuiz(trilhaId, module, questions, answers, startTime, timer
     const currentUser = window.elearning?.getCurrentUser();
     if (currentUser && module && module.id) {
         try {
+            // Salvar progresso
             await saveQuizProgress(currentUser.id, module.id, percentage, tempoEstudoMinutos);
             console.log('Progresso do quiz salvo com sucesso');
+            
+            // Salvar respostas individuais para revisão posterior
+            // Só salvar se as questões tiverem ID (questões do banco de dados)
+            try {
+                const answersToSave = questions
+                    .map((question, index) => {
+                        // Verificar se a questão tem ID (questões do banco têm ID numérico)
+                        const questionId = question.id;
+                        const hasValidId = questionId && typeof questionId === 'number' && questionId > 0;
+                        
+                        if (hasValidId && answers[index]) {
+                            return {
+                                question_id: questionId,
+                                selected_answer: answers[index]
+                            };
+                        }
+                        return null;
+                    })
+                    .filter(a => a !== null);
+                
+                if (answersToSave.length > 0) {
+                    const saveResponse = await fetch('/api/v1/trilhas-personalizadas/quiz/save-answers', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            user_id: currentUser.id,
+                            module_id: module.id,
+                            trilha_id: trilhaId,
+                            answers: answersToSave,
+                            total_time_seconds: totalTime
+                        })
+                    });
+                    
+                    const saveResult = await saveResponse.json();
+                    if (saveResult.success) {
+                        console.log(`✓ ${answersToSave.length} respostas do quiz salvas com sucesso`);
+                    } else {
+                        console.warn('Erro ao salvar respostas:', saveResult);
+                    }
+                } else {
+                    console.log('Questões não têm ID válido, respostas não serão salvas para revisão');
+                }
+            } catch (error) {
+                console.error('Erro ao salvar respostas individuais:', error);
+                // Não interromper o fluxo se falhar ao salvar respostas
+            }
         } catch (error) {
             console.error('Erro ao salvar progresso do quiz:', error);
             if (window.elearning?.showNotification) {

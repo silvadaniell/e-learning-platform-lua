@@ -15,6 +15,97 @@ import sys
 
 router = APIRouter()
 
+@router.get("/module/{module_id}/questions-with-answers/{user_id}", response_model=APIResponse)
+async def get_module_questions_with_answers(module_id: int, user_id: int):
+    """
+    Get questions with user answers for a module.
+    Returns questions with the user's answers for review purposes.
+    """
+    try:
+        from data_access.repositories.questao_repository import QuestaoRepository
+        from infrastructure.database.connection import get_database
+        from infrastructure.database.models import RespostaUsuario, SessaoQuiz
+        from sqlalchemy.orm import Session
+        import json
+        
+        db: Session = next(get_database())
+        questao_repo = QuestaoRepository()
+        
+        # Buscar questões do módulo
+        saved_questions = await questao_repo.get_by_conteudo_id(module_id)
+        
+        if not saved_questions or len(saved_questions) == 0:
+            return APIResponse(
+                success=True,
+                message="Nenhuma questão encontrada",
+                data={
+                    "questions": [],
+                    "module_id": module_id,
+                    "total_questions": 0
+                }
+            )
+        
+        # Buscar sessões de quiz completadas para este módulo e usuário
+        completed_sessions = db.query(SessaoQuiz).filter(
+            SessaoQuiz.conteudo_id == module_id,
+            SessaoQuiz.usuario_id == user_id,
+            SessaoQuiz.status == "completed"
+        ).order_by(SessaoQuiz.completado_em.desc()).all()
+        
+        # Buscar respostas do usuário para as questões
+        questions_with_answers = []
+        for questao in saved_questions:
+            # Buscar resposta do usuário para esta questão (da última sessão completada)
+            user_answer = None
+            for session in completed_sessions:
+                answer = db.query(RespostaUsuario).filter(
+                    RespostaUsuario.questao_id == questao.id,
+                    RespostaUsuario.sessao_id == session.id,
+                    RespostaUsuario.usuario_id == user_id
+                ).first()
+                
+                if answer:
+                    user_answer = {
+                        "selected": answer.resposta_selecionada,
+                        "correct": answer.resposta_correta,
+                        "is_correct": answer.esta_correta
+                    }
+                    break
+            
+            # Parsear alternativas
+            alternatives_dict = json.loads(questao.alternativas)
+            alternatives = [
+                {"letter": letter, "text": text}
+                for letter, text in alternatives_dict.items()
+            ]
+            
+            question_data = {
+                "id": questao.id,
+                "question": questao.pergunta,
+                "alternatives": alternatives,
+                "correct_answer": questao.resposta_correta,
+                "explanation": questao.explicacao or "",
+                "user_answer": user_answer["selected"] if user_answer else None,
+                "is_correct": user_answer["is_correct"] if user_answer else None
+            }
+            questions_with_answers.append(question_data)
+        
+        return APIResponse(
+            success=True,
+            message="Questões com respostas carregadas",
+            data={
+                "questions": questions_with_answers,
+                "module_id": module_id,
+                "total_questions": len(questions_with_answers)
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error getting module questions with answers: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar questões: {str(e)}")
+
 @router.get("/module/{module_id}/questions", response_model=APIResponse)
 async def get_module_questions(module_id: int):
     try:
@@ -1031,6 +1122,123 @@ async def get_user_created_trilhas(user_id: int):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}"
         )
+
+@router.post("/quiz/save-answers", response_model=APIResponse)
+async def save_quiz_answers(request: dict):
+    """
+    Save quiz answers for a module.
+    Creates a session and saves all answers.
+    """
+    try:
+        from infrastructure.database.connection import get_database
+        from infrastructure.database.models import SessaoQuiz, RespostaUsuario
+        from sqlalchemy.orm import Session
+        from datetime import datetime
+        
+        user_id = request.get('user_id')
+        module_id = request.get('module_id')
+        trilha_id = request.get('trilha_id')
+        answers = request.get('answers', [])  # Lista de {question_id, selected_answer}
+        total_time_seconds = request.get('total_time_seconds', 0)
+        
+        if not user_id or not module_id or not trilha_id:
+            raise HTTPException(status_code=400, detail="user_id, module_id e trilha_id são obrigatórios")
+        
+        db: Session = next(get_database())
+        
+        # Criar ou atualizar sessão de quiz
+        session = db.query(SessaoQuiz).filter(
+            SessaoQuiz.usuario_id == user_id,
+            SessaoQuiz.conteudo_id == module_id,
+            SessaoQuiz.trilha_id == trilha_id,
+            SessaoQuiz.status == "completed"
+        ).order_by(SessaoQuiz.completado_em.desc()).first()
+        
+        if not session:
+            # Criar nova sessão
+            session = SessaoQuiz(
+                usuario_id=user_id,
+                conteudo_id=module_id,
+                trilha_id=trilha_id,
+                total_questoes=len(answers),
+                questao_atual=len(answers),
+                status="completed",
+                completado_em=datetime.now()
+            )
+            db.add(session)
+            db.flush()
+        else:
+            # Limpar respostas antigas desta sessão
+            db.query(RespostaUsuario).filter(
+                RespostaUsuario.sessao_id == session.id
+            ).delete()
+        
+        # Buscar questões para obter respostas corretas
+        from data_access.repositories.questao_repository import QuestaoRepository
+        import json
+        
+        questao_repo = QuestaoRepository()
+        saved_questions = await questao_repo.get_by_conteudo_id(module_id)
+        questions_dict = {q.id: q for q in saved_questions}
+        
+        # Salvar respostas
+        correct_count = 0
+        wrong_count = 0
+        
+        for answer_data in answers:
+            question_id = answer_data.get('question_id')
+            selected_answer = answer_data.get('selected_answer')
+            
+            if not question_id or not selected_answer:
+                continue
+            
+            question = questions_dict.get(question_id)
+            if not question:
+                continue
+            
+            correct_answer = question.resposta_correta
+            is_correct = selected_answer.lower() == correct_answer.lower()
+            
+            if is_correct:
+                correct_count += 1
+            else:
+                wrong_count += 1
+            
+            resposta = RespostaUsuario(
+                sessao_id=session.id,
+                questao_id=question_id,
+                usuario_id=user_id,
+                resposta_selecionada=selected_answer.lower(),
+                resposta_correta=correct_answer.lower(),
+                esta_correta=is_correct
+            )
+            db.add(resposta)
+        
+        # Atualizar estatísticas da sessão
+        session.respostas_corretas = correct_count
+        session.respostas_erradas = wrong_count
+        session.status = "completed"
+        if not session.completado_em:
+            session.completado_em = datetime.now()
+        
+        db.commit()
+        
+        return APIResponse(
+            success=True,
+            message="Respostas salvas com sucesso",
+            data={
+                "session_id": session.id,
+                "correct_answers": correct_count,
+                "wrong_answers": wrong_count,
+                "total_questions": len(answers)
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error saving quiz answers: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao salvar respostas: {str(e)}")
 
 @router.post("/quiz/start", response_model=APIResponse)
 async def start_quiz_session(request: QuizSessionRequest):
