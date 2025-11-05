@@ -11,6 +11,7 @@ from lua_bridge.lua_engine import get_lua_engine
 from infrastructure.integration.gemini_client import gemini_client
 import json
 import asyncio
+import sys
 
 router = APIRouter()
 
@@ -756,14 +757,25 @@ async def get_user_created_trilhas(user_id: int):
         
         # LOG: Quantas trilhas foram encontradas
         print(f"Trilhas encontradas no banco: {len(trilhas)}")
+        sys.stdout.flush()
         if trilhas:
             print("Detalhes das trilhas:")
-            for t in trilhas:
-                print(f"  - ID={t.id}, Titulo={t.titulo}, criador_id={t.criador_id}")
+            sys.stdout.flush()
+            try:
+                for t in trilhas:
+                    try:
+                        print(f"  - ID={t.id}, Titulo={t.titulo}, criador_id={t.criador_id}")
+                        sys.stdout.flush()
+                    except Exception as e:
+                        print(f"  - ERRO ao imprimir detalhes da trilha: {e}, tipo: {type(t)}")
+                        sys.stdout.flush()
+            except Exception as e:
+                print(f"ERRO ao iterar trilhas: {e}")
+                sys.stdout.flush()
         else:
             print("Nenhuma trilha encontrada para este usuário")
+            sys.stdout.flush()
         
-        # Map difficulty to Portuguese labels
         difficulty_map = {
             "beginner": "iniciante",
             "intermediate": "intermediario",

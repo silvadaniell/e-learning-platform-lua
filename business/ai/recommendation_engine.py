@@ -142,15 +142,71 @@ class RecommendationEngine:
             
             ai_recommendations_data = None
             try:
-                json_match = re.search(r'\{.*\}', ai_text, re.DOTALL)
-                if json_match:
-                    ai_recommendations_data = json.loads(json_match.group())
+                cleaned_text = ai_text.strip()
+                
+                if cleaned_text.startswith('```'):
+                    cleaned_text = re.sub(r'^```(?:json)?\s*', '', cleaned_text, flags=re.IGNORECASE)
+                    cleaned_text = re.sub(r'\s*```$', '', cleaned_text, flags=re.IGNORECASE)
+                
+                def extract_json_from_text(text: str) -> Optional[str]:
+                    first_brace = text.find('{')
+                    if first_brace == -1:
+                        return None
+                    
+                    brace_count = 0
+                    in_string = False
+                    escape_next = False
+                    
+                    for i in range(first_brace, len(text)):
+                        char = text[i]
+                        
+                        if escape_next:
+                            escape_next = False
+                            continue
+                        
+                        if char == '\\':
+                            escape_next = True
+                            continue
+                        
+                        if char == '"' and not escape_next:
+                            in_string = not in_string
+                            continue
+                        
+                        if not in_string:
+                            if char == '{':
+                                brace_count += 1
+                            elif char == '}':
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    return text[first_brace:i + 1]
+                    
+                    return None
+                
+                json_str = extract_json_from_text(cleaned_text)
+                if json_str:
+                    ai_recommendations_data = json.loads(json_str)
                 else:
-                    ai_recommendations_data = json.loads(ai_text)
+                    ai_recommendations_data = json.loads(cleaned_text)
             except (json.JSONDecodeError, AttributeError) as e:
                 print(f"Erro ao processar resposta JSON da IA: {e}")
-                print(f"Texto da resposta: {ai_text[:500]}")
-                ai_recommendations_data = None
+                print(f"Texto da resposta (primeiros 1000 chars): {ai_text[:1000]}")
+                try:
+                    def extract_json_aggressive(text: str) -> Optional[str]:
+                        first_brace = text.find('{')
+                        last_brace = text.rfind('}')
+                        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+                            return text[first_brace:last_brace + 1]
+                        return None
+                    
+                    json_str = extract_json_aggressive(ai_text)
+                    if json_str:
+                        ai_recommendations_data = json.loads(json_str)
+                        print("Conseguiu extrair JSON após tentativa alternativa")
+                    else:
+                        ai_recommendations_data = None
+                except Exception as e2:
+                    print(f"Tentativa alternativa também falhou: {e2}")
+                    ai_recommendations_data = None
             
             recommendations = []
             
