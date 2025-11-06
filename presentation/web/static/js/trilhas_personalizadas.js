@@ -1278,7 +1278,8 @@ window.showTrilhaFinalResults = async function showTrilhaFinalResults(trilhaId) 
         modal.className = 'modal-overlay trilha-results-overlay';
         modal.innerHTML = `
             <div class="modal-content trilha-results-modal" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
-                <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem;">
+                <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem; position: relative;">
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="position: absolute; top: 1rem; right: 1rem; background: rgba(255, 255, 255, 0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; z-index: 10;" onmouseover="this.style.background='rgba(255, 255, 255, 0.3)'" onmouseout="this.style.background='rgba(255, 255, 255, 0.2)'">&times;</button>
                     <h2 style="margin: 0; font-size: 1.8rem;">🎉 Trilha Concluída!</h2>
                     <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">${trilha.titulo}</p>
                 </div>
@@ -2051,7 +2052,8 @@ function showQuizResults(trilhaId, module, results, correctAnswers, totalQuestio
     modal.className = 'modal-overlay quiz-results-overlay';
     modal.innerHTML = `
         <div class="modal-content quiz-results-modal">
-            <div class="modal-header">
+            <div class="modal-header" style="position: relative;">
+                <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="position: absolute; top: 1rem; right: 1rem; background: rgba(0, 0, 0, 0.1); border: none; color: #333; width: 36px; height: 36px; border-radius: 50%; font-size: 1.5rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; z-index: 10;" onmouseover="this.style.background='rgba(0, 0, 0, 0.2)'" onmouseout="this.style.background='rgba(0, 0, 0, 0.1)'">&times;</button>
                 <h3>Resultado do Quiz</h3>
                 <div class="quiz-score ${percentage >= 70 ? 'passed' : 'failed'}">
                     ${percentage}%
