@@ -12,6 +12,9 @@ from infrastructure.database.models import (
     Conteudo,
     Usuario,
     Desempenho,
+    Questao,
+    SessaoQuiz,
+    RespostaUsuario,
     user_trilha_association,
 )
 
@@ -145,30 +148,89 @@ class TrilhaRepository(BaseRepository[Trilha]):
     async def delete(self, trilha_id: int) -> bool:
         db = self.get_db()
         try:
-            trilha = db.query(Trilha).options(
-                joinedload(Trilha.conteudos),
-                joinedload(Trilha.usuarios)
-            ).filter(Trilha.id == trilha_id).first()
+            # Busca a trilha com todos os relacionamentos
+            trilha = db.query(Trilha).filter(Trilha.id == trilha_id).first()
             if not trilha:
                 print(f"Trilha {trilha_id} not found.")
                 return False
 
-            # Remove associações com usuários
+            # 1. Remove associações com usuários (tabela de relacionamento many-to-many)
             trilha.usuarios.clear()
             db.flush()
 
-            # Deleta desempenhos relacionados a cada conteúdo
-            for conteudo in trilha.conteudos:
-                db.query(Desempenho).filter(Desempenho.conteudo_id == conteudo.id).delete(synchronize_session=False)
-                db.delete(conteudo)
+            # 2. Busca todos os conteúdos da trilha
+            conteudos = db.query(Conteudo).filter(Conteudo.trilha_id == trilha_id).all()
+            conteudo_ids = [c.id for c in conteudos]
+            
+            # 3. Busca todas as sessões de quiz relacionadas à trilha
+            sessoes_quiz_trilha = db.query(SessaoQuiz).filter(SessaoQuiz.trilha_id == trilha_id).all()
+            
+            # 3.1. Busca sessões de quiz relacionadas aos conteúdos
+            sessoes_quiz_conteudo = []
+            if conteudo_ids:
+                sessoes_quiz_conteudo = db.query(SessaoQuiz).filter(SessaoQuiz.conteudo_id.in_(conteudo_ids)).all()
+            
+            # 3.2. Combina todas as sessões, removendo duplicatas
+            sessao_ids_set = set()
+            sessoes_quiz = []
+            for sessao in sessoes_quiz_trilha + sessoes_quiz_conteudo:
+                if sessao.id not in sessao_ids_set:
+                    sessao_ids_set.add(sessao.id)
+                    sessoes_quiz.append(sessao)
+            
+            # 4. Para cada sessão de quiz, deleta as respostas do usuário primeiro
+            sessao_ids = list(sessao_ids_set)
+            for sessao in sessoes_quiz:
+                respostas = db.query(RespostaUsuario).filter(RespostaUsuario.sessao_id == sessao.id).all()
+                for resposta in respostas:
+                    db.delete(resposta)
+            db.flush()
+            
+            # 5. Deleta todas as sessões de quiz
+            for sessao in sessoes_quiz:
+                db.delete(sessao)
+            db.flush()
 
-            # Deleta a trilha
+            # 6. Para cada conteúdo, deleta em cascata
+            for conteudo in conteudos:
+                conteudo_id = conteudo.id
+                
+                # 6.1. Busca todas as questões deste conteúdo
+                questoes = db.query(Questao).filter(Questao.conteudo_id == conteudo_id).all()
+                
+                # 6.2. Para cada questão, deleta as respostas do usuário relacionadas
+                # (todas as respostas relacionadas a sessões já foram deletadas acima,
+                # mas deletamos todas aqui para garantir que não há respostas órfãs)
+                for questao in questoes:
+                    respostas_questao = db.query(RespostaUsuario).filter(
+                        RespostaUsuario.questao_id == questao.id
+                    ).all()
+                    for resposta in respostas_questao:
+                        db.delete(resposta)
+                    db.flush()
+                    # Deleta a questão
+                    db.delete(questao)
+                db.flush()
+                
+                # 6.3. Deleta desempenhos relacionados a este conteúdo
+                desempenhos = db.query(Desempenho).filter(Desempenho.conteudo_id == conteudo_id).all()
+                for desempenho in desempenhos:
+                    db.delete(desempenho)
+                db.flush()
+                
+                # 6.4. Deleta o conteúdo
+                db.delete(conteudo)
+            db.flush()
+            
+            # 7. Deleta a trilha
             db.delete(trilha)
             db.commit()
             return True
         except Exception as e:
             db.rollback()
             print(f"Error deleting trilha {trilha_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     # =========================
